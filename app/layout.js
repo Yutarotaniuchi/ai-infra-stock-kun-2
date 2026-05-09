@@ -1,6 +1,6 @@
 export const metadata = {
-  title: "AIインフラ株 判断くん",
-  description: "日本株の短期売買判断アプリ",
+  title: "AI Infra Stock Kun",
+  description: "Stock App",
 }
 
 export default function RootLayout({ children }) {
