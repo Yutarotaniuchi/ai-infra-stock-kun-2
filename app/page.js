@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 
-const STORAGE_KEY = "signal_os_risk_check_v1"
+const STORAGE_KEY = "signal_os_final_practical_v2"
 
 const TOTAL_CASH = 1000000
 const INVEST_LIMIT = 800000
@@ -63,6 +63,7 @@ const EMPTY_HOLDINGS = {
     amount: "",
     memo: "",
     emotion: "冷静",
+    buyRule: "ルール通り",
   },
   "5805": {
     shares: "",
@@ -70,6 +71,7 @@ const EMPTY_HOLDINGS = {
     amount: "",
     memo: "",
     emotion: "冷静",
+    buyRule: "ルール通り",
   },
   "6857": {
     shares: "",
@@ -77,6 +79,7 @@ const EMPTY_HOLDINGS = {
     amount: "",
     memo: "",
     emotion: "冷静",
+    buyRule: "ルール通り",
   },
 }
 
@@ -105,15 +108,28 @@ function dev(price, ma) {
 function calcProfit(stock, holding) {
   const shares = n(holding.shares)
   const buyPrice = n(holding.buyPrice)
+  const manualAmount = n(holding.amount)
   const currentPrice = n(stock.price)
 
   if (!shares || !buyPrice) {
+    if (manualAmount > 0) {
+      return {
+        cost: manualAmount,
+        value: manualAmount,
+        profit: 0,
+        rate: 0,
+        has: false,
+        estimated: true,
+      }
+    }
+
     return {
       cost: 0,
       value: 0,
       profit: 0,
       rate: 0,
       has: false,
+      estimated: false,
     }
   }
 
@@ -128,6 +144,7 @@ function calcProfit(stock, holding) {
     profit,
     rate: profitRate,
     has: true,
+    estimated: false,
   }
 }
 
@@ -140,6 +157,7 @@ function getLevelColor(level) {
     danger: "#ff4d6d",
     crash: "#c084fc",
     neutral: "#94a3b8",
+    normal: "#94a3b8",
   }
 
   return colors[level] || colors.neutral
@@ -154,39 +172,39 @@ function getLevelBg(level) {
     danger: "rgba(255,77,109,.18)",
     crash: "rgba(192,132,252,.18)",
     neutral: "rgba(148,163,184,.12)",
+    normal: "rgba(148,163,184,.12)",
   }
 
   return colors[level] || colors.neutral
 }
 
 function getBuyStage(stock, invested) {
-  const p1 = n(stock.plans[0])
-  const p2 = n(stock.plans[1])
-  const p3 = n(stock.plans[2])
+  const first = n(stock.plans[0])
+  const second = n(stock.plans[1])
   const target = n(stock.target)
 
   if (invested <= 0) {
     return {
       stage: "第1回待機",
-      nextAmount: p1,
+      nextAmount: first,
       progress: 0,
       text: "まだ入っていません。条件が良い時だけ第1回を検討。",
     }
   }
 
-  if (invested < p1) {
+  if (invested < first) {
     return {
       stage: "第1回途中",
-      nextAmount: Math.max(0, p1 - invested),
+      nextAmount: Math.max(0, first - invested),
       progress: Math.min(100, (invested / target) * 100),
       text: "第1回の途中です。焦って追加しない。",
     }
   }
 
-  if (invested < p1 + p2) {
+  if (invested < first + second) {
     return {
       stage: "第2回待機",
-      nextAmount: Math.max(0, p1 + p2 - invested),
+      nextAmount: Math.max(0, first + second - invested),
       progress: Math.min(100, (invested / target) * 100),
       text: "第2回は地合いと押し目を確認してから。",
     }
@@ -254,6 +272,10 @@ function makeRiskChecks(stock, holding, market, summary) {
 
   if (holding.emotion === "焦り" || holding.emotion === "欲") {
     risks.push("感情が強い状態")
+  }
+
+  if (holding.buyRule === "ルール外") {
+    risks.push("自分の売買ルール外")
   }
 
   return risks
@@ -378,6 +400,46 @@ function judgeStock(stock, holding, market, summary) {
   }
 }
 
+function getConclusion(summary, market) {
+  if (market.mode === "crash") {
+    return {
+      label: "今日は防御",
+      level: "crash",
+      text: "市場が荒れています。新規買いよりも現金維持と損失管理が優先です。",
+    }
+  }
+
+  if (summary.danger > 0) {
+    return {
+      label: "危険あり",
+      level: "danger",
+      text: "危険シグナルがあります。買いよりも、保有理由と損切りラインを確認します。",
+    }
+  }
+
+  if (summary.sell > 0) {
+    return {
+      label: "利確確認",
+      level: "profit",
+      text: "利益が出ている銘柄があります。勝ちを残す判断を考えます。",
+    }
+  }
+
+  if (summary.buy > 0) {
+    return {
+      label: "少額のみ検討",
+      level: "buy",
+      text: "買い候補があります。ただし一括ではなく、予定額の一部だけです。",
+    }
+  }
+
+  return {
+    label: "待機",
+    level: "wait",
+    text: "無理に動く必要はありません。現金保持も立派な投資判断です。",
+  }
+}
+
 export default function Page() {
   const [stocks, setStocks] = useState(BASE_STOCKS)
   const [holdings, setHoldings] = useState(EMPTY_HOLDINGS)
@@ -386,6 +448,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState("")
   const [apiStatus, setApiStatus] = useState("未取得")
+  const [apiSource, setApiSource] = useState("-")
   const [market, setMarket] = useState({
     mode: "normal",
     label: "通常",
@@ -433,6 +496,8 @@ export default function Page() {
       const json = await res.json()
       const data = json.data || []
 
+      setApiSource(json.source || "-")
+
       if (!json.ok || data.length === 0) {
         setApiStatus("API取得失敗")
       } else {
@@ -445,11 +510,18 @@ export default function Page() {
 
           if (!found) return stock
 
+          const volume = found.regularMarketVolume || stock.volume
+          const avgVolume =
+            found.averageDailyVolume3Month ||
+            found.averageDailyVolume10Day ||
+            stock.volume
+
           return {
             ...stock,
             price: Math.round(found.regularMarketPrice || stock.price),
             prevClose: Math.round(found.regularMarketPreviousClose || stock.prevClose),
-            volume: found.regularMarketVolume || stock.volume,
+            volume,
+            volumeRate: avgVolume ? Number(Math.max(0.1, volume / avgVolume).toFixed(1)) : stock.volumeRate,
             per: found.trailingPE ? Number(found.trailingPE.toFixed(1)) : stock.per,
           }
         })
@@ -564,6 +636,10 @@ export default function Page() {
     }
   }, [stocks, holdings, market, baseSummary])
 
+  const conclusion = useMemo(() => {
+    return getConclusion(fullSummary, market)
+  }, [fullSummary, market])
+
   function updateHolding(code, key, value) {
     setHoldings((prev) => ({
       ...prev,
@@ -574,9 +650,23 @@ export default function Page() {
     }))
   }
 
+  function updateStock(code, key, value) {
+    setStocks((prev) =>
+      prev.map((stock) =>
+        stock.code === code
+          ? {
+              ...stock,
+              [key]: value,
+            }
+          : stock
+      )
+    )
+  }
+
   function addLog(stock, action) {
     const h = holdings[stock.code]
     const p = calcProfit(stock, h)
+    const j = judgeStock(stock, h, market, fullSummary)
 
     setLogs((prev) =>
       [
@@ -588,6 +678,7 @@ export default function Page() {
           action,
           price: stock.price,
           profit: p.profit,
+          judge: j.label,
           emotion: h.emotion,
           memo: h.memo,
         },
@@ -614,7 +705,7 @@ export default function Page() {
       </section>
 
       <nav className="nav">
-        {["home", "stock", "edit", "log", "help"].map((item) => (
+        {["home", "stock", "plan", "edit", "log"].map((item) => (
           <button
             key={item}
             className={tab === item ? "on" : ""}
@@ -627,6 +718,12 @@ export default function Page() {
 
       {tab === "home" && (
         <section className="grid">
+          <div className="judge" style={{ borderColor: getLevelColor(conclusion.level) }}>
+            <p className="label">TODAY</p>
+            <h2 style={{ color: getLevelColor(conclusion.level) }}>{conclusion.label}</h2>
+            <p>{conclusion.text}</p>
+          </div>
+
           <div className="judge" style={{ borderColor: getLevelColor(market.mode) }}>
             <p className="label">MARKET MODE</p>
             <h2 style={{ color: getLevelColor(market.mode) }}>{market.label}</h2>
@@ -683,6 +780,7 @@ export default function Page() {
           <div className="card full">
             <p className="label">API STATUS</p>
             <h3>{apiStatus}</h3>
+            <p>データ元: {apiSource}</p>
             <p>最終更新: {lastUpdate || "未更新"}</p>
           </div>
         </section>
@@ -696,7 +794,6 @@ export default function Page() {
             const j = judgeStock(stock, holding, market, fullSummary)
             const change = rate(stock.price, stock.prevClose)
             const deviation = dev(stock.price, stock.ma25)
-            const stage = getBuyStage(stock, p.cost)
 
             return (
               <article className="stock" key={stock.code}>
@@ -764,22 +861,48 @@ export default function Page() {
                   )}
                 </div>
 
-                <div className="card inner">
-                  <p className="label">分割買いステージ</p>
-                  <h3>{stage.stage}</h3>
-                  <p>{stage.text}</p>
-                  <div className="bar">
-                    <i style={{ width: stage.progress + "%" }} />
-                  </div>
-                  <p>次の購入目安: {stage.nextAmount ? yen(stage.nextAmount) : "追加なし"}</p>
-                </div>
-
                 <div className="actions">
                   <button onClick={() => addLog(stock, "買い検討")}>買い検討</button>
                   <button onClick={() => addLog(stock, "利確検討")}>利確</button>
                   <button onClick={() => addLog(stock, "損切り検討")}>損切り</button>
                 </div>
               </article>
+            )
+          })}
+        </section>
+      )}
+
+      {tab === "plan" && (
+        <section className="list">
+          <div className="card full">
+            <h2>TRADE PLAN</h2>
+            <p>一括買いを防ぎ、分割で入るためのページです。</p>
+          </div>
+
+          {stocks.map((stock) => {
+            const holding = holdings[stock.code]
+            const p = calcProfit(stock, holding)
+            const stage = getBuyStage(stock, p.cost)
+            const safeBuyCapacity = Math.max(0, fullSummary.cash - KEEP_CASH)
+            const allowedBuy = Math.min(stage.nextAmount, safeBuyCapacity)
+
+            return (
+              <div className="card full" key={stock.code}>
+                <p className="label">{stock.code}</p>
+                <h2>{stock.name}</h2>
+                <p>{stage.text}</p>
+
+                <div className="bar">
+                  <i style={{ width: stage.progress + "%" }} />
+                </div>
+
+                <div className="metrics">
+                  <Mini title="現在投資額" value={yen(p.cost)} />
+                  <Mini title="最終予定額" value={yen(stock.target)} />
+                  <Mini title="次の購入目安" value={stage.nextAmount ? yen(stage.nextAmount) : "追加なし"} />
+                  <Mini title="安全に買える上限" value={allowedBuy ? yen(allowedBuy) : "買わない"} />
+                </div>
+              </div>
             )
           })}
         </section>
@@ -836,6 +959,18 @@ export default function Page() {
                 </label>
 
                 <label>
+                  売買ルール
+                  <select
+                    value={h.buyRule}
+                    onChange={(e) => updateHolding(stock.code, "buyRule", e.target.value)}
+                  >
+                    <option>ルール通り</option>
+                    <option>ルール外</option>
+                    <option>確認中</option>
+                  </select>
+                </label>
+
+                <label>
                   メモ
                   <textarea
                     value={h.memo}
@@ -844,6 +979,45 @@ export default function Page() {
                     placeholder="買った理由、怖い理由、売る条件など"
                   />
                 </label>
+
+                <div className="manual">
+                  <p className="label">手入力モード</p>
+                  <label>
+                    現在値
+                    <input
+                      inputMode="numeric"
+                      value={stock.price}
+                      onChange={(e) => updateStock(stock.code, "price", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    前日終値
+                    <input
+                      inputMode="numeric"
+                      value={stock.prevClose}
+                      onChange={(e) => updateStock(stock.code, "prevClose", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    出来高倍率
+                    <input
+                      inputMode="decimal"
+                      value={stock.volumeRate}
+                      onChange={(e) => updateStock(stock.code, "volumeRate", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    25日線
+                    <input
+                      inputMode="numeric"
+                      value={stock.ma25}
+                      onChange={(e) => updateStock(stock.code, "ma25", e.target.value)}
+                    />
+                  </label>
+                </div>
               </div>
             )
           })}
@@ -866,33 +1040,13 @@ export default function Page() {
                 <p className="label">{log.date}</p>
                 <h3>{log.name}</h3>
                 <p>{log.action} / {yen(log.price)}</p>
+                <p>判定: {log.judge}</p>
                 <p>感情: {log.emotion}</p>
                 <p>損益: {yen(log.profit)}</p>
                 {log.memo ? <p>メモ: {log.memo}</p> : null}
               </div>
             ))
           )}
-        </section>
-      )}
-
-      {tab === "help" && (
-        <section className="list">
-          <div className="card">
-            <h2>SIGNAL OSとは</h2>
-            <p>
-              投資で勝つためだけではなく、投資で壊れないためのOSです。
-              買う理由よりも、買わない理由を先に確認します。
-            </p>
-          </div>
-
-          <div className="card">
-            <h2>ルール</h2>
-            <p>一括買い禁止。</p>
-            <p>現金20万円は残す。</p>
-            <p>赤は買いではなく防御。</p>
-            <p>待機も正しい判断。</p>
-            <p>焦りや欲が強い日は買わない。</p>
-          </div>
         </section>
       )}
 
@@ -991,11 +1145,6 @@ export default function Page() {
           background: rgba(7, 18, 34, .86);
         }
 
-        .inner {
-          margin-top: 14px;
-          background: rgba(255, 255, 255, .04);
-        }
-
         .judge {
           border-width: 2px;
         }
@@ -1062,12 +1211,6 @@ export default function Page() {
         .ng {
           color: #ff4d6d;
           font-weight: bold;
-        }
-
-        .update {
-          text-align: center;
-          color: #7894a5;
-          font-size: 12px;
         }
 
         .top {
@@ -1186,6 +1329,12 @@ export default function Page() {
           color: #ffdce0;
           background: rgba(120,0,20,.35);
           margin-top: 10px;
+        }
+
+        .manual {
+          margin-top: 18px;
+          padding-top: 14px;
+          border-top: 1px solid rgba(255,255,255,.1);
         }
 
         label {
