@@ -62,20 +62,13 @@ const EMPTY_HOLDINGS = {
   "6857": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静", buyRule: "ルール通り" },
 }
 
-const EMPTY_CHECKS = {
-  "5803": { reason: false, cash: false, split: false, emotion: false, exit: false },
-  "5805": { reason: false, cash: false, split: false, emotion: false, exit: false },
-  "6857": { reason: false, cash: false, split: false, emotion: false, exit: false },
-}
-
 const TABS = [
   { id: "home", label: "HOME", short: "ホーム" },
   { id: "stock", label: "STOCK", short: "銘柄" },
   { id: "plan", label: "PLAN", short: "計画" },
-  { id: "exec", label: "EXEC", short: "実行" },
+  { id: "edit", label: "EDIT", short: "入力" },
   { id: "alert", label: "ALERT", short: "警告" },
   { id: "review", label: "REVIEW", short: "確認" },
-  { id: "edit", label: "EDIT", short: "入力" },
   { id: "log", label: "LOG", short: "記録" },
 ]
 
@@ -113,10 +106,24 @@ function calcProfit(stock, holding) {
 
   if (!shares || !buyPrice) {
     if (manualAmount > 0) {
-      return { cost: manualAmount, value: manualAmount, profit: 0, rate: 0, has: false, estimated: true }
+      return {
+        cost: manualAmount,
+        value: manualAmount,
+        profit: 0,
+        rate: 0,
+        has: false,
+        estimated: true,
+      }
     }
 
-    return { cost: 0, value: 0, profit: 0, rate: 0, has: false, estimated: false }
+    return {
+      cost: 0,
+      value: 0,
+      profit: 0,
+      rate: 0,
+      has: false,
+      estimated: false,
+    }
   }
 
   const cost = shares * buyPrice
@@ -124,14 +131,28 @@ function calcProfit(stock, holding) {
   const profit = value - cost
   const profitRate = cost ? (profit / cost) * 100 : 0
 
-  return { cost, value, profit, rate: profitRate, has: true, estimated: false }
+  return {
+    cost,
+    value,
+    profit,
+    rate: profitRate,
+    has: true,
+    estimated: false,
+  }
 }
 
 function getExitLines(holding) {
   const buy = n(holding.buyPrice)
 
   if (!buy) {
-    return { stop8: 0, stop10: 0, profit15: 0, profit25: 0, profit35: 0, has: false }
+    return {
+      stop8: 0,
+      stop10: 0,
+      profit15: 0,
+      profit25: 0,
+      profit35: 0,
+      has: false,
+    }
   }
 
   return {
@@ -147,8 +168,13 @@ function getExitLines(holding) {
 function getTechnical(stock) {
   const change = rate(n(stock.price), n(stock.prevClose))
   const deviation = dev(n(stock.price), n(stock.ma25))
+
   const rsiProxy = clamp(50 + change * 5 + deviation * 0.8, 5, 95)
-  const trendScore = clamp(50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15, 0, 100)
+  const trendScore = clamp(
+    50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15,
+    0,
+    100
+  )
 
   let trend = "中立"
   if (trendScore >= 70) trend = "上向き"
@@ -427,16 +453,6 @@ function getConclusion(summary, market) {
   }
 }
 
-function getChecklistScore(check) {
-  const keys = ["reason", "cash", "split", "emotion", "exit"]
-  const ok = keys.filter((key) => check?.[key]).length
-  return {
-    ok,
-    total: keys.length,
-    passed: ok === keys.length,
-  }
-}
-
 function createAlerts(stocks, holdings, market, summary) {
   const alerts = []
 
@@ -550,12 +566,12 @@ function createDailyActions(stocks, holdings, market, summary) {
   if (summary.buy === 0 && summary.sell === 0 && summary.danger === 0) actions.push("今日は待機でOK")
 
   actions.push("感情が焦りなら買わない")
-  actions.push("実行前チェックを5つ確認")
+  actions.push("赤い警告が出ていないか確認")
 
   return actions.slice(0, 5)
 }
 
-function createReview(stocks, holdings, checks, logs, market, summary) {
+function createReview(stocks, holdings, logs, market, summary) {
   const review = []
 
   const cashOk = summary.cash >= KEEP_CASH
@@ -575,10 +591,7 @@ function createReview(stocks, holdings, checks, logs, market, summary) {
   stocks.forEach((stock) => {
     const p = calcProfit(stock, holdings[stock.code])
     if (p.cost > best.cost) {
-      best = {
-        name: stock.name,
-        cost: p.cost,
-      }
+      best = { name: stock.name, cost: p.cost }
     }
   })
 
@@ -593,26 +606,6 @@ function createReview(stocks, holdings, checks, logs, market, summary) {
       : "1銘柄への集中は大きすぎません。",
   })
 
-  let checkTotal = 0
-  let checkOk = 0
-
-  Object.keys(checks).forEach((code) => {
-    const s = getChecklistScore(checks[code])
-    checkTotal += s.total
-    checkOk += s.ok
-  })
-
-  const checkRate = checkTotal ? (checkOk / checkTotal) * 100 : 0
-
-  review.push({
-    title: "実行前チェック",
-    level: checkRate >= 70 ? "buy" : "warning",
-    score: Math.round(checkRate),
-    text: checkRate >= 70
-      ? "チェック習慣は良い状態です。"
-      : "買う前の確認がまだ弱いです。",
-  })
-
   const emotionalLogs = logs.filter((log) => log.emotion === "焦り" || log.emotion === "欲").length
 
   review.push({
@@ -622,6 +615,17 @@ function createReview(stocks, holdings, checks, logs, market, summary) {
     text: emotionalLogs === 0
       ? "焦りや欲による記録は少なめです。"
       : "焦りや欲のログがあります。次回の買いは慎重に。",
+  })
+
+  const hasLogs = logs.length > 0
+
+  review.push({
+    title: "記録習慣",
+    level: hasLogs ? "buy" : "warning",
+    score: hasLogs ? 80 : 40,
+    text: hasLogs
+      ? "売買判断ログが残っています。振り返りに使えます。"
+      : "まだログがありません。判断理由を残すと強くなります。",
   })
 
   review.push({
@@ -639,7 +643,6 @@ function createReview(stocks, holdings, checks, logs, market, summary) {
 export default function Page() {
   const [stocks, setStocks] = useState(BASE_STOCKS)
   const [holdings, setHoldings] = useState(EMPTY_HOLDINGS)
-  const [checks, setChecks] = useState(EMPTY_CHECKS)
   const [logs, setLogs] = useState([])
   const [tab, setTab] = useState("home")
   const [loading, setLoading] = useState(false)
@@ -657,7 +660,6 @@ export default function Page() {
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY)
-
     if (!saved) return
 
     try {
@@ -671,14 +673,6 @@ export default function Page() {
         })
       }
 
-      if (parsed.checks) {
-        setChecks({
-          "5803": { ...EMPTY_CHECKS["5803"], ...parsed.checks["5803"] },
-          "5805": { ...EMPTY_CHECKS["5805"], ...parsed.checks["5805"] },
-          "6857": { ...EMPTY_CHECKS["6857"], ...parsed.checks["6857"] },
-        })
-      }
-
       if (parsed.logs) setLogs(parsed.logs)
     } catch {}
   }, [])
@@ -688,11 +682,10 @@ export default function Page() {
       STORAGE_KEY,
       JSON.stringify({
         holdings,
-        checks,
         logs,
       })
     )
-  }, [holdings, checks, logs])
+  }, [holdings, logs])
 
   async function fetchMarket() {
     setLoading(true)
@@ -703,17 +696,11 @@ export default function Page() {
       const data = json.data || []
 
       setApiSource(json.source || "-")
-
-      if (!json.ok || data.length === 0) {
-        setApiStatus("API取得失敗")
-      } else {
-        setApiStatus("API取得成功")
-      }
+      setApiStatus(!json.ok || data.length === 0 ? "API取得失敗" : "API取得成功")
 
       setStocks((prev) =>
         prev.map((stock) => {
           const found = data.find((item) => item.symbol === stock.symbol)
-
           if (!found) return stock
 
           const volume = found.regularMarketVolume || stock.volume
@@ -739,11 +726,7 @@ export default function Page() {
       const vix = data.find((item) => item.symbol === "^VIX")
       const usd = data.find((item) => item.symbol === "JPY=X")
 
-      const nikkeiRate = rate(
-        n(nikkei?.regularMarketPrice),
-        n(nikkei?.regularMarketPreviousClose)
-      )
-
+      const nikkeiRate = rate(n(nikkei?.regularMarketPrice), n(nikkei?.regularMarketPreviousClose))
       const vixValue = n(vix?.regularMarketPrice)
 
       let mode = "normal"
@@ -768,13 +751,9 @@ export default function Page() {
         mode,
         label,
         reason,
-        nikkei: nikkei?.regularMarketPrice
-          ? yen(Math.round(nikkei.regularMarketPrice))
-          : "-",
+        nikkei: nikkei?.regularMarketPrice ? yen(Math.round(nikkei.regularMarketPrice)) : "-",
         vix: vixValue || "-",
-        usd: usd?.regularMarketPrice
-          ? Number(usd.regularMarketPrice).toFixed(2)
-          : "-",
+        usd: usd?.regularMarketPrice ? Number(usd.regularMarketPrice).toFixed(2) : "-",
       })
 
       setLastUpdate(new Date().toLocaleString("ja-JP"))
@@ -851,26 +830,12 @@ export default function Page() {
   const conclusion = useMemo(() => getConclusion(fullSummary, market), [fullSummary, market])
   const alerts = useMemo(() => createAlerts(stocks, holdings, market, fullSummary), [stocks, holdings, market, fullSummary])
   const dailyActions = useMemo(() => createDailyActions(stocks, holdings, market, fullSummary), [stocks, holdings, market, fullSummary])
-  const review = useMemo(() => createReview(stocks, holdings, checks, logs, market, fullSummary), [stocks, holdings, checks, logs, market, fullSummary])
+  const review = useMemo(() => createReview(stocks, holdings, logs, market, fullSummary), [stocks, holdings, logs, market, fullSummary])
 
   function updateHolding(code, key, value) {
     setHoldings((prev) => ({
       ...prev,
       [code]: { ...prev[code], [key]: value },
-    }))
-  }
-
-  function updateCheck(code, key) {
-    setChecks((prev) => ({
-      ...prev,
-      [code]: { ...prev[code], [key]: !prev[code][key] },
-    }))
-  }
-
-  function resetCheck(code) {
-    setChecks((prev) => ({
-      ...prev,
-      [code]: { ...EMPTY_CHECKS[code] },
     }))
   }
 
@@ -884,7 +849,6 @@ export default function Page() {
     const h = holdings[stock.code]
     const p = calcProfit(stock, h)
     const j = judgeStock(stock, h, market, fullSummary)
-    const checkScore = getChecklistScore(checks[stock.code])
 
     setLogs((prev) =>
       [
@@ -898,7 +862,6 @@ export default function Page() {
           profit: p.profit,
           judge: j.label,
           emotion: h.emotion,
-          checklist: checkScore.ok + "/" + checkScore.total,
           memo: h.memo,
         },
         ...prev,
@@ -953,12 +916,7 @@ export default function Page() {
           <Card title="SIGNAL SCORE" value={fullSummary.score} color="#00f5d4" />
           <Card title="投資額" value={yen(fullSummary.totalCost)} />
           <Card title="評価額" value={yen(fullSummary.totalValue)} />
-          <Card
-            title="損益"
-            value={yen(fullSummary.totalProfit)}
-            sub={pct(fullSummary.profitRate)}
-            color={fullSummary.totalProfit >= 0 ? "#00f5d4" : "#ff4d6d"}
-          />
+          <Card title="損益" value={yen(fullSummary.totalProfit)} sub={pct(fullSummary.profitRate)} color={fullSummary.totalProfit >= 0 ? "#00f5d4" : "#ff4d6d"} />
           <Card title="現金目安" value={yen(fullSummary.cash)} />
           <Card title="残り投資枠" value={yen(fullSummary.remain)} />
           <Card title="日経平均" value={market.nikkei} />
@@ -1131,53 +1089,6 @@ export default function Page() {
         </section>
       )}
 
-      {tab === "exec" && (
-        <section className="list">
-          <div className="card full">
-            <h2>EXECUTION CHECK</h2>
-            <p>買う前に、5つ全部OKにならないなら原則待機。</p>
-          </div>
-
-          {stocks.map((stock) => {
-            const check = checks[stock.code]
-            const score = getChecklistScore(check)
-            const holding = holdings[stock.code]
-            const j = judgeStock(stock, holding, market, fullSummary)
-
-            return (
-              <div className="card full" key={stock.code}>
-                <p className="label">{stock.code}</p>
-                <h2>{stock.name}</h2>
-
-                <div className="execStatus" style={{ borderColor: score.passed ? "#00f5d4" : "#ffb703" }}>
-                  <b style={{ color: score.passed ? "#00f5d4" : "#ffb703" }}>
-                    {score.passed ? "実行OK" : "まだ待機"}
-                  </b>
-                  <span>{score.ok}/{score.total}</span>
-                </div>
-
-                <CheckItem checked={check.reason} onClick={() => updateCheck(stock.code, "reason")} text="買う理由を言葉で説明できる" />
-                <CheckItem checked={check.cash} onClick={() => updateCheck(stock.code, "cash")} text="現金20万円ルールを守れる" />
-                <CheckItem checked={check.split} onClick={() => updateCheck(stock.code, "split")} text="一括ではなく分割で買う" />
-                <CheckItem checked={check.emotion} onClick={() => updateCheck(stock.code, "emotion")} text="焦り・欲ではなく冷静" />
-                <CheckItem checked={check.exit} onClick={() => updateCheck(stock.code, "exit")} text="利確・損切りラインを決めた" />
-
-                <div className="message">
-                  <b>現在の判定</b>
-                  <p>{j.label} / {j.permission}</p>
-                  <p>{j.action}</p>
-                </div>
-
-                <div className="actions">
-                  <button onClick={() => addLog(stock, "実行前チェック")}>チェック記録</button>
-                  <button onClick={() => resetCheck(stock.code)}>リセット</button>
-                </div>
-              </div>
-            )
-          })}
-        </section>
-      )}
-
       {tab === "edit" && (
         <section className="list">
           <div className="card full">
@@ -1303,10 +1214,10 @@ export default function Page() {
 
           <div className="card full">
             <h2>改善メモ</h2>
-            <p>1. 買う前にEXECを確認する。</p>
-            <p>2. ALERTが赤なら買わない。</p>
-            <p>3. 利確候補が出たら、少し売る選択肢を持つ。</p>
-            <p>4. 感情が「焦り」「欲」の日は待機。</p>
+            <p>1. ALERTが赤なら買わない。</p>
+            <p>2. 利確候補が出たら、少し売る選択肢を持つ。</p>
+            <p>3. 感情が「焦り」「欲」の日は待機。</p>
+            <p>4. LOGに判断理由を残す。</p>
           </div>
         </section>
       )}
@@ -1329,7 +1240,6 @@ export default function Page() {
                 <p>{log.action} / {yen(log.price)}</p>
                 <p>判定: {log.judge}</p>
                 <p>感情: {log.emotion}</p>
-                <p>チェック: {log.checklist || "-"}</p>
                 <p>損益: {yen(log.profit)}</p>
                 {log.memo ? <p>メモ: {log.memo}</p> : null}
               </div>
@@ -1698,36 +1608,6 @@ export default function Page() {
           margin-top: 10px;
         }
 
-        .execStatus {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin: 14px 0;
-          padding: 14px;
-          border: 1px solid;
-          border-radius: 16px;
-          background: rgba(255,255,255,.04);
-        }
-
-        .checkItem {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          width: 100%;
-          margin-top: 8px;
-          padding: 12px;
-          border: 1px solid rgba(0, 220, 255, .2);
-          border-radius: 14px;
-          color: white;
-          background: rgba(255,255,255,.05);
-          text-align: left;
-        }
-
-        .checkItem b {
-          color: #00f5d4;
-        }
-
         .reviewCard {
           display: grid;
           grid-template-columns: 1fr 56px;
@@ -1817,14 +1697,5 @@ function Rule({ ok, text }) {
       <span>{text}</span>
       <b className={ok ? "ok" : "ng"}>{ok ? "OK" : "注意"}</b>
     </div>
-  )
-}
-
-function CheckItem({ checked, onClick, text }) {
-  return (
-    <button className="checkItem" onClick={onClick}>
-      <span>{text}</span>
-      <b>{checked ? "OK" : "未確認"}</b>
-    </button>
   )
 }
