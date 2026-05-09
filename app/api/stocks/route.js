@@ -4,27 +4,23 @@ export async function GET() {
   try {
     const url =
       "https://query1.finance.yahoo.com/v7/finance/quote?symbols=" +
-      symbols.join(",")
+      encodeURIComponent(symbols.join(","))
 
     const res = await fetch(url, {
       cache: "no-store",
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-      },
+      headers: { "User-Agent": "Mozilla/5.0" },
     })
 
     const json = await res.json()
-    const list = json.quoteResponse?.result || []
 
     return Response.json({
       ok: true,
       updatedAt: new Date().toISOString(),
-      data: list,
+      data: json.quoteResponse?.result || [],
     })
-  } catch (error) {
+  } catch {
     return Response.json({
       ok: false,
-      error: "market api failed",
       updatedAt: new Date().toISOString(),
       data: [],
     })
