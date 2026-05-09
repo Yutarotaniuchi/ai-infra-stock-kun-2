@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 
-const STORAGE_KEY = "signal_os_restore_edit_v1"
+const STORAGE_KEY = "signal_os_bottom_nav_v1"
 
 const TOTAL_CASH = 1000000
 const INVEST_LIMIT = 800000
@@ -57,55 +57,27 @@ const BASE_STOCKS = [
 ]
 
 const EMPTY_HOLDINGS = {
-  "5803": {
-    shares: "",
-    buyPrice: "",
-    amount: "",
-    memo: "",
-    emotion: "冷静",
-    buyRule: "ルール通り",
-  },
-  "5805": {
-    shares: "",
-    buyPrice: "",
-    amount: "",
-    memo: "",
-    emotion: "冷静",
-    buyRule: "ルール通り",
-  },
-  "6857": {
-    shares: "",
-    buyPrice: "",
-    amount: "",
-    memo: "",
-    emotion: "冷静",
-    buyRule: "ルール通り",
-  },
+  "5803": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静", buyRule: "ルール通り" },
+  "5805": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静", buyRule: "ルール通り" },
+  "6857": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静", buyRule: "ルール通り" },
 }
 
 const EMPTY_CHECKS = {
-  "5803": {
-    reason: false,
-    cash: false,
-    split: false,
-    emotion: false,
-    exit: false,
-  },
-  "5805": {
-    reason: false,
-    cash: false,
-    split: false,
-    emotion: false,
-    exit: false,
-  },
-  "6857": {
-    reason: false,
-    cash: false,
-    split: false,
-    emotion: false,
-    exit: false,
-  },
+  "5803": { reason: false, cash: false, split: false, emotion: false, exit: false },
+  "5805": { reason: false, cash: false, split: false, emotion: false, exit: false },
+  "6857": { reason: false, cash: false, split: false, emotion: false, exit: false },
 }
+
+const TABS = [
+  { id: "home", label: "HOME", short: "ホーム" },
+  { id: "stock", label: "STOCK", short: "銘柄" },
+  { id: "plan", label: "PLAN", short: "計画" },
+  { id: "exec", label: "EXEC", short: "実行" },
+  { id: "alert", label: "ALERT", short: "警告" },
+  { id: "review", label: "REVIEW", short: "確認" },
+  { id: "edit", label: "EDIT", short: "入力" },
+  { id: "log", label: "LOG", short: "記録" },
+]
 
 function n(value) {
   return Number(value || 0)
@@ -141,24 +113,10 @@ function calcProfit(stock, holding) {
 
   if (!shares || !buyPrice) {
     if (manualAmount > 0) {
-      return {
-        cost: manualAmount,
-        value: manualAmount,
-        profit: 0,
-        rate: 0,
-        has: false,
-        estimated: true,
-      }
+      return { cost: manualAmount, value: manualAmount, profit: 0, rate: 0, has: false, estimated: true }
     }
 
-    return {
-      cost: 0,
-      value: 0,
-      profit: 0,
-      rate: 0,
-      has: false,
-      estimated: false,
-    }
+    return { cost: 0, value: 0, profit: 0, rate: 0, has: false, estimated: false }
   }
 
   const cost = shares * buyPrice
@@ -166,28 +124,14 @@ function calcProfit(stock, holding) {
   const profit = value - cost
   const profitRate = cost ? (profit / cost) * 100 : 0
 
-  return {
-    cost,
-    value,
-    profit,
-    rate: profitRate,
-    has: true,
-    estimated: false,
-  }
+  return { cost, value, profit, rate: profitRate, has: true, estimated: false }
 }
 
 function getExitLines(holding) {
   const buy = n(holding.buyPrice)
 
   if (!buy) {
-    return {
-      stop8: 0,
-      stop10: 0,
-      profit15: 0,
-      profit25: 0,
-      profit35: 0,
-      has: false,
-    }
+    return { stop8: 0, stop10: 0, profit15: 0, profit25: 0, profit35: 0, has: false }
   }
 
   return {
@@ -203,13 +147,8 @@ function getExitLines(holding) {
 function getTechnical(stock) {
   const change = rate(n(stock.price), n(stock.prevClose))
   const deviation = dev(n(stock.price), n(stock.ma25))
-
   const rsiProxy = clamp(50 + change * 5 + deviation * 0.8, 5, 95)
-  const trendScore = clamp(
-    50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15,
-    0,
-    100
-  )
+  const trendScore = clamp(50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15, 0, 100)
 
   let trend = "中立"
   if (trendScore >= 70) trend = "上向き"
@@ -909,61 +848,35 @@ export default function Page() {
     }
   }, [stocks, holdings, market, baseSummary])
 
-  const conclusion = useMemo(() => {
-    return getConclusion(fullSummary, market)
-  }, [fullSummary, market])
-
-  const alerts = useMemo(() => {
-    return createAlerts(stocks, holdings, market, fullSummary)
-  }, [stocks, holdings, market, fullSummary])
-
-  const dailyActions = useMemo(() => {
-    return createDailyActions(stocks, holdings, market, fullSummary)
-  }, [stocks, holdings, market, fullSummary])
-
-  const review = useMemo(() => {
-    return createReview(stocks, holdings, checks, logs, market, fullSummary)
-  }, [stocks, holdings, checks, logs, market, fullSummary])
+  const conclusion = useMemo(() => getConclusion(fullSummary, market), [fullSummary, market])
+  const alerts = useMemo(() => createAlerts(stocks, holdings, market, fullSummary), [stocks, holdings, market, fullSummary])
+  const dailyActions = useMemo(() => createDailyActions(stocks, holdings, market, fullSummary), [stocks, holdings, market, fullSummary])
+  const review = useMemo(() => createReview(stocks, holdings, checks, logs, market, fullSummary), [stocks, holdings, checks, logs, market, fullSummary])
 
   function updateHolding(code, key, value) {
     setHoldings((prev) => ({
       ...prev,
-      [code]: {
-        ...prev[code],
-        [key]: value,
-      },
+      [code]: { ...prev[code], [key]: value },
     }))
   }
 
   function updateCheck(code, key) {
     setChecks((prev) => ({
       ...prev,
-      [code]: {
-        ...prev[code],
-        [key]: !prev[code][key],
-      },
+      [code]: { ...prev[code], [key]: !prev[code][key] },
     }))
   }
 
   function resetCheck(code) {
     setChecks((prev) => ({
       ...prev,
-      [code]: {
-        ...EMPTY_CHECKS[code],
-      },
+      [code]: { ...EMPTY_CHECKS[code] },
     }))
   }
 
   function updateStock(code, key, value) {
     setStocks((prev) =>
-      prev.map((stock) =>
-        stock.code === code
-          ? {
-              ...stock,
-              [key]: value,
-            }
-          : stock
-      )
+      prev.map((stock) => (stock.code === code ? { ...stock, [key]: value } : stock))
     )
   }
 
@@ -1010,14 +923,15 @@ export default function Page() {
         <button onClick={fetchMarket}>{loading ? "更新中" : "更新"}</button>
       </section>
 
-      <nav className="nav">
-        {["home", "stock", "plan", "exec", "edit", "alert", "review", "log"].map((item) => (
+      <nav className="bottomNav">
+        {TABS.map((item) => (
           <button
-            key={item}
-            className={tab === item ? "on" : ""}
-            onClick={() => setTab(item)}
+            key={item.id}
+            className={tab === item.id ? "on" : ""}
+            onClick={() => setTab(item.id)}
           >
-            {item.toUpperCase()}
+            <span>{item.label}</span>
+            <small>{item.short}</small>
           </button>
         ))}
       </nav>
@@ -1064,22 +978,10 @@ export default function Page() {
           <div className="card full">
             <p className="label">SIGNALS</p>
             <div className="signals">
-              <div>
-                <b style={{ color: "#00f5d4" }}>{fullSummary.buy}</b>
-                <span>買い</span>
-              </div>
-              <div>
-                <b style={{ color: "#7cff6b" }}>{fullSummary.sell}</b>
-                <span>利確</span>
-              </div>
-              <div>
-                <b style={{ color: "#60a5fa" }}>{fullSummary.wait}</b>
-                <span>待機</span>
-              </div>
-              <div>
-                <b style={{ color: "#ff4d6d" }}>{fullSummary.danger}</b>
-                <span>危険</span>
-              </div>
+              <div><b style={{ color: "#00f5d4" }}>{fullSummary.buy}</b><span>買い</span></div>
+              <div><b style={{ color: "#7cff6b" }}>{fullSummary.sell}</b><span>利確</span></div>
+              <div><b style={{ color: "#60a5fa" }}>{fullSummary.wait}</b><span>待機</span></div>
+              <div><b style={{ color: "#ff4d6d" }}>{fullSummary.danger}</b><span>危険</span></div>
             </div>
           </div>
 
@@ -1119,13 +1021,7 @@ export default function Page() {
                     <h2>{stock.name}</h2>
                     <p className="theme">{stock.theme}</p>
                   </div>
-                  <div
-                    className="badge"
-                    style={{
-                      color: getLevelColor(j.level),
-                      background: getLevelBg(j.level),
-                    }}
-                  >
+                  <div className="badge" style={{ color: getLevelColor(j.level), background: getLevelBg(j.level) }}>
                     {j.label}
                   </div>
                 </div>
@@ -1145,27 +1041,15 @@ export default function Page() {
 
                 <div className="metrics">
                   <Mini title="現在値" value={yen(stock.price)} />
-                  <Mini
-                    title="前日比"
-                    value={pct(tech.change)}
-                    color={tech.change >= 0 ? "#00f5d4" : "#ff4d6d"}
-                  />
+                  <Mini title="前日比" value={pct(tech.change)} color={tech.change >= 0 ? "#00f5d4" : "#ff4d6d"} />
                   <Mini title="出来高" value={n(stock.volume).toLocaleString("ja-JP")} />
                   <Mini title="出来高倍率" value={stock.volumeRate + "倍"} />
                   <Mini title="PER" value={stock.per + "倍"} />
-                  <Mini
-                    title="25日線乖離"
-                    value={pct(tech.deviation)}
-                    color={tech.deviation >= 0 ? "#00f5d4" : "#ff4d6d"}
-                  />
+                  <Mini title="25日線乖離" value={pct(tech.deviation)} color={tech.deviation >= 0 ? "#00f5d4" : "#ff4d6d"} />
                   <Mini title="RSI目安" value={tech.rsiProxy} />
                   <Mini title="トレンド" value={tech.trend} />
                   <Mini title="評価額" value={yen(p.value)} />
-                  <Mini
-                    title="損益"
-                    value={yen(p.profit)}
-                    color={p.profit >= 0 ? "#00f5d4" : "#ff4d6d"}
-                  />
+                  <Mini title="損益" value={yen(p.profit)} color={p.profit >= 0 ? "#00f5d4" : "#ff4d6d"} />
                 </div>
 
                 <div className="message">
@@ -1178,9 +1062,7 @@ export default function Page() {
                   <b>買わない理由</b>
                   {j.noBuyReasons.length ? (
                     <ul>
-                      {j.noBuyReasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
+                      {j.noBuyReasons.map((reason) => <li key={reason}>{reason}</li>)}
                     </ul>
                   ) : (
                     <p>大きな禁止理由は少なめです。</p>
@@ -1267,43 +1149,18 @@ export default function Page() {
                 <p className="label">{stock.code}</p>
                 <h2>{stock.name}</h2>
 
-                <div
-                  className="execStatus"
-                  style={{
-                    borderColor: score.passed ? "#00f5d4" : "#ffb703",
-                  }}
-                >
+                <div className="execStatus" style={{ borderColor: score.passed ? "#00f5d4" : "#ffb703" }}>
                   <b style={{ color: score.passed ? "#00f5d4" : "#ffb703" }}>
                     {score.passed ? "実行OK" : "まだ待機"}
                   </b>
                   <span>{score.ok}/{score.total}</span>
                 </div>
 
-                <CheckItem
-                  checked={check.reason}
-                  onClick={() => updateCheck(stock.code, "reason")}
-                  text="買う理由を言葉で説明できる"
-                />
-                <CheckItem
-                  checked={check.cash}
-                  onClick={() => updateCheck(stock.code, "cash")}
-                  text="現金20万円ルールを守れる"
-                />
-                <CheckItem
-                  checked={check.split}
-                  onClick={() => updateCheck(stock.code, "split")}
-                  text="一括ではなく分割で買う"
-                />
-                <CheckItem
-                  checked={check.emotion}
-                  onClick={() => updateCheck(stock.code, "emotion")}
-                  text="焦り・欲ではなく冷静"
-                />
-                <CheckItem
-                  checked={check.exit}
-                  onClick={() => updateCheck(stock.code, "exit")}
-                  text="利確・損切りラインを決めた"
-                />
+                <CheckItem checked={check.reason} onClick={() => updateCheck(stock.code, "reason")} text="買う理由を言葉で説明できる" />
+                <CheckItem checked={check.cash} onClick={() => updateCheck(stock.code, "cash")} text="現金20万円ルールを守れる" />
+                <CheckItem checked={check.split} onClick={() => updateCheck(stock.code, "split")} text="一括ではなく分割で買う" />
+                <CheckItem checked={check.emotion} onClick={() => updateCheck(stock.code, "emotion")} text="焦り・欲ではなく冷静" />
+                <CheckItem checked={check.exit} onClick={() => updateCheck(stock.code, "exit")} text="利確・損切りラインを決めた" />
 
                 <div className="message">
                   <b>現在の判定</b>
@@ -1338,37 +1195,22 @@ export default function Page() {
 
                 <label>
                   株数
-                  <input
-                    inputMode="numeric"
-                    value={h.shares}
-                    onChange={(e) => updateHolding(stock.code, "shares", e.target.value)}
-                  />
+                  <input inputMode="numeric" value={h.shares} onChange={(e) => updateHolding(stock.code, "shares", e.target.value)} />
                 </label>
 
                 <label>
                   取得単価
-                  <input
-                    inputMode="numeric"
-                    value={h.buyPrice}
-                    onChange={(e) => updateHolding(stock.code, "buyPrice", e.target.value)}
-                  />
+                  <input inputMode="numeric" value={h.buyPrice} onChange={(e) => updateHolding(stock.code, "buyPrice", e.target.value)} />
                 </label>
 
                 <label>
                   購入額
-                  <input
-                    inputMode="numeric"
-                    value={h.amount}
-                    onChange={(e) => updateHolding(stock.code, "amount", e.target.value)}
-                  />
+                  <input inputMode="numeric" value={h.amount} onChange={(e) => updateHolding(stock.code, "amount", e.target.value)} />
                 </label>
 
                 <label>
                   感情
-                  <select
-                    value={h.emotion}
-                    onChange={(e) => updateHolding(stock.code, "emotion", e.target.value)}
-                  >
+                  <select value={h.emotion} onChange={(e) => updateHolding(stock.code, "emotion", e.target.value)}>
                     <option>冷静</option>
                     <option>焦り</option>
                     <option>恐怖</option>
@@ -1379,10 +1221,7 @@ export default function Page() {
 
                 <label>
                   売買ルール
-                  <select
-                    value={h.buyRule}
-                    onChange={(e) => updateHolding(stock.code, "buyRule", e.target.value)}
-                  >
+                  <select value={h.buyRule} onChange={(e) => updateHolding(stock.code, "buyRule", e.target.value)}>
                     <option>ルール通り</option>
                     <option>ルール外</option>
                     <option>確認中</option>
@@ -1391,12 +1230,7 @@ export default function Page() {
 
                 <label>
                   メモ
-                  <textarea
-                    value={h.memo}
-                    maxLength={120}
-                    onChange={(e) => updateHolding(stock.code, "memo", e.target.value)}
-                    placeholder="買った理由、怖い理由、売る条件など"
-                  />
+                  <textarea value={h.memo} maxLength={120} onChange={(e) => updateHolding(stock.code, "memo", e.target.value)} placeholder="買った理由、怖い理由、売る条件など" />
                 </label>
 
                 <div className="manual">
@@ -1404,47 +1238,27 @@ export default function Page() {
 
                   <label>
                     現在値
-                    <input
-                      inputMode="numeric"
-                      value={stock.price}
-                      onChange={(e) => updateStock(stock.code, "price", e.target.value)}
-                    />
+                    <input inputMode="numeric" value={stock.price} onChange={(e) => updateStock(stock.code, "price", e.target.value)} />
                   </label>
 
                   <label>
                     前日終値
-                    <input
-                      inputMode="numeric"
-                      value={stock.prevClose}
-                      onChange={(e) => updateStock(stock.code, "prevClose", e.target.value)}
-                    />
+                    <input inputMode="numeric" value={stock.prevClose} onChange={(e) => updateStock(stock.code, "prevClose", e.target.value)} />
                   </label>
 
                   <label>
                     出来高倍率
-                    <input
-                      inputMode="decimal"
-                      value={stock.volumeRate}
-                      onChange={(e) => updateStock(stock.code, "volumeRate", e.target.value)}
-                    />
+                    <input inputMode="decimal" value={stock.volumeRate} onChange={(e) => updateStock(stock.code, "volumeRate", e.target.value)} />
                   </label>
 
                   <label>
                     PER
-                    <input
-                      inputMode="decimal"
-                      value={stock.per}
-                      onChange={(e) => updateStock(stock.code, "per", e.target.value)}
-                    />
+                    <input inputMode="decimal" value={stock.per} onChange={(e) => updateStock(stock.code, "per", e.target.value)} />
                   </label>
 
                   <label>
                     25日線
-                    <input
-                      inputMode="numeric"
-                      value={stock.ma25}
-                      onChange={(e) => updateStock(stock.code, "ma25", e.target.value)}
-                    />
+                    <input inputMode="numeric" value={stock.ma25} onChange={(e) => updateStock(stock.code, "ma25", e.target.value)} />
                   </label>
                 </div>
               </div>
@@ -1461,11 +1275,7 @@ export default function Page() {
           </div>
 
           {alerts.map((alert, index) => (
-            <div
-              className="alertCard"
-              key={index}
-              style={{ borderColor: getLevelColor(alert.level) }}
-            >
+            <div className="alertCard" key={index} style={{ borderColor: getLevelColor(alert.level) }}>
               <p className="label">ALERT</p>
               <h3 style={{ color: getLevelColor(alert.level) }}>{alert.title}</h3>
               <p>{alert.text}</p>
@@ -1482,11 +1292,7 @@ export default function Page() {
           </div>
 
           {review.map((item) => (
-            <div
-              className="reviewCard"
-              key={item.title}
-              style={{ borderColor: getLevelColor(item.level) }}
-            >
+            <div className="reviewCard" key={item.title} style={{ borderColor: getLevelColor(item.level) }}>
               <div>
                 <p className="label">{item.title}</p>
                 <h3>{item.text}</h3>
@@ -1539,7 +1345,7 @@ export default function Page() {
 
         .app {
           min-height: 100vh;
-          padding: 16px 14px 90px;
+          padding: 18px 14px calc(170px + env(safe-area-inset-bottom));
           color: white;
           background:
             radial-gradient(circle at top, rgba(0, 180, 255, .25), transparent 32%),
@@ -1552,9 +1358,11 @@ export default function Page() {
           justify-content: space-between;
           gap: 12px;
           padding: 18px;
+          margin-bottom: 14px;
           border: 1px solid rgba(0, 220, 255, .35);
           border-radius: 22px;
-          background: rgba(5, 16, 32, .86);
+          background: rgba(5, 16, 32, .9);
+          box-shadow: 0 0 22px rgba(0, 220, 255, .08);
         }
 
         .sub,
@@ -1562,11 +1370,13 @@ export default function Page() {
           margin: 0 0 8px;
           color: #8aa6b5;
           font-size: 12px;
+          letter-spacing: .08em;
         }
 
         h1 {
           margin: 0;
           font-size: 28px;
+          letter-spacing: .05em;
         }
 
         h2,
@@ -1580,38 +1390,59 @@ export default function Page() {
         }
 
         .hero button,
-        .nav button,
         .actions button,
         .dangerBtn {
           border: 1px solid rgba(0, 220, 255, .35);
           border-radius: 999px;
-          padding: 11px;
+          padding: 11px 14px;
           color: white;
           background: rgba(255, 255, 255, .06);
           font-weight: bold;
         }
 
-        .nav {
-          position: sticky;
-          top: 0;
-          z-index: 5;
-          display: flex;
-          gap: 6px;
-          padding: 12px 0;
-          overflow-x: auto;
-          background: rgba(2, 7, 19, .92);
+        .bottomNav {
+          position: fixed;
+          left: 10px;
+          right: 10px;
+          bottom: calc(10px + env(safe-area-inset-bottom));
+          z-index: 50;
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 7px;
+          padding: 10px;
+          border: 1px solid rgba(0, 220, 255, .28);
+          border-radius: 24px;
+          background: rgba(3, 10, 22, .92);
+          backdrop-filter: blur(16px);
+          box-shadow: 0 0 28px rgba(0, 220, 255, .14);
         }
 
-        .nav button {
-          min-width: 72px;
-          font-size: 10px;
+        .bottomNav button {
+          display: grid;
+          gap: 2px;
+          place-items: center;
+          min-height: 46px;
+          border: 1px solid rgba(120, 190, 220, .25);
+          border-radius: 16px;
           color: #a9bfca;
-          padding: 10px 3px;
+          background: rgba(255, 255, 255, .05);
+          font-weight: 900;
         }
 
-        .nav .on {
-          background: #60ddff;
+        .bottomNav button span {
+          font-size: 10px;
+          letter-spacing: .08em;
+        }
+
+        .bottomNav button small {
+          font-size: 9px;
+          opacity: .8;
+        }
+
+        .bottomNav .on {
           color: #00131c;
+          background: #60ddff;
+          box-shadow: 0 0 18px rgba(0, 220, 255, .45);
         }
 
         .grid,
@@ -1948,6 +1779,12 @@ export default function Page() {
 
           .grid {
             grid-template-columns: repeat(2, 1fr);
+          }
+
+          .bottomNav {
+            max-width: 560px;
+            left: 50%;
+            transform: translateX(-50%);
           }
         }
       `}</style>
