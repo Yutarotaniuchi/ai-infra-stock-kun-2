@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 
-const STORAGE_KEY = "signal_os_alert_center_v1"
+const STORAGE_KEY = "signal_os_final_polish_v1"
 
 const TOTAL_CASH = 1000000
 const INVEST_LIMIT = 800000
@@ -111,6 +111,10 @@ function n(value) {
   return Number(value || 0)
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
 function yen(value) {
   return n(value).toLocaleString("ja-JP") + "円"
 }
@@ -196,6 +200,33 @@ function getExitLines(holding) {
   }
 }
 
+function getTechnical(stock) {
+  const change = rate(n(stock.price), n(stock.prevClose))
+  const deviation = dev(n(stock.price), n(stock.ma25))
+
+  const rsiProxy = clamp(50 + change * 5 + deviation * 0.8, 5, 95)
+  const macdProxy = deviation
+  const trendScore = clamp(50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15, 0, 100)
+
+  let trend = "中立"
+  if (trendScore >= 70) trend = "上向き"
+  if (trendScore <= 35) trend = "弱い"
+
+  let heat = "通常"
+  if (rsiProxy >= 75 || deviation >= 15) heat = "過熱"
+  if (rsiProxy <= 35 || change <= -5) heat = "押し目"
+
+  return {
+    change,
+    deviation,
+    rsiProxy: Math.round(rsiProxy),
+    macdProxy,
+    trendScore: Math.round(trendScore),
+    trend,
+    heat,
+  }
+}
+
 function getLevelColor(level) {
   const colors = {
     buy: "#00f5d4",
@@ -277,15 +308,15 @@ function getBuyStage(stock, invested) {
 
 function makeRiskChecks(stock, holding, market, summary) {
   const profit = calcProfit(stock, holding)
-  const change = rate(n(stock.price), n(stock.prevClose))
-  const deviation = dev(n(stock.price), n(stock.ma25))
+  const tech = getTechnical(stock)
   const positionRate = summary.totalCost ? (profit.cost / summary.totalCost) * 100 : 0
   const risks = []
 
   if (market.mode === "crash") risks.push("市場が暴落監視モード")
   if (market.mode === "warning") risks.push("市場が警戒モード")
-  if (change >= 5) risks.push("短期で上がりすぎ")
-  if (deviation >= 15) risks.push("25日線から離れすぎ")
+  if (tech.change >= 5) risks.push("短期で上がりすぎ")
+  if (tech.deviation >= 15) risks.push("25日線から離れすぎ")
+  if (tech.rsiProxy >= 75) risks.push("短期の過熱感が強い")
   if (n(stock.per) >= 35) risks.push("PERが高め")
   if (n(stock.volumeRate) < 1) risks.push("出来高が弱い")
   if (summary.cash < KEEP_CASH) risks.push("現金20万円ルールを割っている")
@@ -299,8 +330,7 @@ function makeRiskChecks(stock, holding, market, summary) {
 
 function judgeStock(stock, holding, market, summary) {
   const profit = calcProfit(stock, holding)
-  const change = rate(n(stock.price), n(stock.prevClose))
-  const deviation = dev(n(stock.price), n(stock.ma25))
+  const tech = getTechnical(stock)
   const risks = makeRiskChecks(stock, holding, market, summary)
 
   if (market.mode === "crash") {
@@ -351,7 +381,7 @@ function judgeStock(stock, holding, market, summary) {
     }
   }
 
-  if (change >= 10 || deviation >= 20) {
+  if (tech.change >= 10 || tech.deviation >= 20 || tech.rsiProxy >= 82) {
     return {
       label: "危険",
       level: "danger",
@@ -375,7 +405,7 @@ function judgeStock(stock, holding, market, summary) {
     }
   }
 
-  if (change <= -3 && change >= -7 && n(stock.volumeRate) >= 1 && summary.cash >= KEEP_CASH) {
+  if (tech.change <= -3 && tech.change >= -7 && n(stock.volumeRate) >= 1 && summary.cash >= KEEP_CASH) {
     return {
       label: "少額買い",
       level: "buy",
@@ -388,10 +418,10 @@ function judgeStock(stock, holding, market, summary) {
   }
 
   if (
-    change >= -5 &&
-    change <= 3 &&
+    tech.change >= -5 &&
+    tech.change <= 3 &&
     n(stock.volumeRate) >= 1.5 &&
-    deviation <= 10 &&
+    tech.deviation <= 10 &&
     summary.cash >= KEEP_CASH
   ) {
     return {
@@ -497,8 +527,7 @@ function createAlerts(stocks, holdings, market, summary) {
     const holding = holdings[stock.code]
     const p = calcProfit(stock, holding)
     const exit = getExitLines(holding)
-    const change = rate(stock.price, stock.prevClose)
-    const deviation = dev(stock.price, stock.ma25)
+    const tech = getTechnical(stock)
 
     if (p.has && p.rate <= -10) {
       alerts.push({
@@ -528,7 +557,7 @@ function createAlerts(stocks, holdings, market, summary) {
       })
     }
 
-    if (change >= 10 || deviation >= 20) {
+    if (tech.change >= 10 || tech.deviation >= 20 || tech.rsiProxy >= 82) {
       alerts.push({
         level: "danger",
         title: stock.name + " 過熱",
@@ -600,10 +629,11 @@ function createReview(stocks, holdings, checks, logs, market, summary) {
       : "現金または投資上限に注意が必要です。",
   })
 
-  let best = null
+  let best = { name: "-", cost: 0 }
+
   stocks.forEach((stock) => {
     const p = calcProfit(stock, holdings[stock.code])
-    if (!best || p.cost > best.cost) {
+    if (p.cost > best.cost) {
       best = {
         name: stock.name,
         cost: p.cost,
@@ -1076,8 +1106,7 @@ export default function Page() {
             const holding = holdings[stock.code]
             const p = calcProfit(stock, holding)
             const j = judgeStock(stock, holding, market, fullSummary)
-            const change = rate(stock.price, stock.prevClose)
-            const deviation = dev(stock.price, stock.ma25)
+            const tech = getTechnical(stock)
             const exit = getExitLines(holding)
 
             return (
@@ -1104,21 +1133,31 @@ export default function Page() {
                   <b style={{ color: getLevelColor(j.level) }}>{j.score}</b>
                 </div>
 
+                <div className="miniChart">
+                  <div style={{ height: clamp(tech.trendScore, 8, 100) + "%" }} />
+                  <div style={{ height: clamp(tech.rsiProxy, 8, 100) + "%" }} />
+                  <div style={{ height: clamp(100 - Math.abs(tech.deviation), 8, 100) + "%" }} />
+                  <div style={{ height: clamp(n(stock.volumeRate) * 30, 8, 100) + "%" }} />
+                  <div style={{ height: clamp(j.score, 8, 100) + "%" }} />
+                </div>
+
                 <div className="metrics">
                   <Mini title="現在値" value={yen(stock.price)} />
                   <Mini
                     title="前日比"
-                    value={pct(change)}
-                    color={change >= 0 ? "#00f5d4" : "#ff4d6d"}
+                    value={pct(tech.change)}
+                    color={tech.change >= 0 ? "#00f5d4" : "#ff4d6d"}
                   />
                   <Mini title="出来高" value={n(stock.volume).toLocaleString("ja-JP")} />
                   <Mini title="出来高倍率" value={stock.volumeRate + "倍"} />
                   <Mini title="PER" value={stock.per + "倍"} />
                   <Mini
                     title="25日線乖離"
-                    value={pct(deviation)}
-                    color={deviation >= 0 ? "#00f5d4" : "#ff4d6d"}
+                    value={pct(tech.deviation)}
+                    color={tech.deviation >= 0 ? "#00f5d4" : "#ff4d6d"}
                   />
+                  <Mini title="RSI目安" value={tech.rsiProxy} />
+                  <Mini title="トレンド" value={tech.trend} />
                   <Mini title="評価額" value={yen(p.value)} />
                   <Mini
                     title="損益"
@@ -1601,6 +1640,24 @@ export default function Page() {
 
         .score b {
           font-size: 28px;
+        }
+
+        .miniChart {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          align-items: end;
+          gap: 8px;
+          height: 70px;
+          margin-top: 14px;
+          padding: 10px;
+          border-radius: 16px;
+          background: rgba(255,255,255,.05);
+        }
+
+        .miniChart div {
+          border-radius: 999px 999px 4px 4px;
+          background: linear-gradient(180deg, #00f5d4, rgba(0,245,212,.25));
+          min-height: 8px;
         }
 
         .bar {
