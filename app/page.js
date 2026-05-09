@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 
-const STORAGE_KEY = "signal_os_final_polish_v1"
+const STORAGE_KEY = "signal_os_restore_edit_v1"
 
 const TOTAL_CASH = 1000000
 const INVEST_LIMIT = 800000
@@ -205,8 +205,11 @@ function getTechnical(stock) {
   const deviation = dev(n(stock.price), n(stock.ma25))
 
   const rsiProxy = clamp(50 + change * 5 + deviation * 0.8, 5, 95)
-  const macdProxy = deviation
-  const trendScore = clamp(50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15, 0, 100)
+  const trendScore = clamp(
+    50 + change * 4 + deviation * 1.4 + (n(stock.volumeRate) - 1) * 15,
+    0,
+    100
+  )
 
   let trend = "中立"
   if (trendScore >= 70) trend = "上向き"
@@ -220,7 +223,6 @@ function getTechnical(stock) {
     change,
     deviation,
     rsiProxy: Math.round(rsiProxy),
-    macdProxy,
     trendScore: Math.round(trendScore),
     trend,
     heat,
@@ -1009,7 +1011,7 @@ export default function Page() {
       </section>
 
       <nav className="nav">
-        {["home", "stock", "plan", "exec", "alert", "review", "log"].map((item) => (
+        {["home", "stock", "plan", "exec", "edit", "alert", "review", "log"].map((item) => (
           <button
             key={item}
             className={tab === item ? "on" : ""}
@@ -1319,6 +1321,138 @@ export default function Page() {
         </section>
       )}
 
+      {tab === "edit" && (
+        <section className="list">
+          <div className="card full">
+            <h2>EDIT</h2>
+            <p>保有情報・感情・手入力データを編集します。</p>
+          </div>
+
+          {stocks.map((stock) => {
+            const h = holdings[stock.code]
+
+            return (
+              <div className="card full" key={stock.code}>
+                <p className="label">{stock.code}</p>
+                <h2>{stock.name}</h2>
+
+                <label>
+                  株数
+                  <input
+                    inputMode="numeric"
+                    value={h.shares}
+                    onChange={(e) => updateHolding(stock.code, "shares", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  取得単価
+                  <input
+                    inputMode="numeric"
+                    value={h.buyPrice}
+                    onChange={(e) => updateHolding(stock.code, "buyPrice", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  購入額
+                  <input
+                    inputMode="numeric"
+                    value={h.amount}
+                    onChange={(e) => updateHolding(stock.code, "amount", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  感情
+                  <select
+                    value={h.emotion}
+                    onChange={(e) => updateHolding(stock.code, "emotion", e.target.value)}
+                  >
+                    <option>冷静</option>
+                    <option>焦り</option>
+                    <option>恐怖</option>
+                    <option>欲</option>
+                    <option>ルール通り</option>
+                  </select>
+                </label>
+
+                <label>
+                  売買ルール
+                  <select
+                    value={h.buyRule}
+                    onChange={(e) => updateHolding(stock.code, "buyRule", e.target.value)}
+                  >
+                    <option>ルール通り</option>
+                    <option>ルール外</option>
+                    <option>確認中</option>
+                  </select>
+                </label>
+
+                <label>
+                  メモ
+                  <textarea
+                    value={h.memo}
+                    maxLength={120}
+                    onChange={(e) => updateHolding(stock.code, "memo", e.target.value)}
+                    placeholder="買った理由、怖い理由、売る条件など"
+                  />
+                </label>
+
+                <div className="manual">
+                  <p className="label">手入力モード</p>
+
+                  <label>
+                    現在値
+                    <input
+                      inputMode="numeric"
+                      value={stock.price}
+                      onChange={(e) => updateStock(stock.code, "price", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    前日終値
+                    <input
+                      inputMode="numeric"
+                      value={stock.prevClose}
+                      onChange={(e) => updateStock(stock.code, "prevClose", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    出来高倍率
+                    <input
+                      inputMode="decimal"
+                      value={stock.volumeRate}
+                      onChange={(e) => updateStock(stock.code, "volumeRate", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    PER
+                    <input
+                      inputMode="decimal"
+                      value={stock.per}
+                      onChange={(e) => updateStock(stock.code, "per", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    25日線
+                    <input
+                      inputMode="numeric"
+                      value={stock.ma25}
+                      onChange={(e) => updateStock(stock.code, "ma25", e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            )
+          })}
+        </section>
+      )}
+
       {tab === "alert" && (
         <section className="list">
           <div className="card full">
@@ -1469,7 +1603,7 @@ export default function Page() {
         }
 
         .nav button {
-          min-width: 70px;
+          min-width: 72px;
           font-size: 10px;
           color: #a9bfca;
           padding: 10px 3px;
@@ -1773,6 +1907,37 @@ export default function Page() {
         .reviewCard b {
           font-size: 28px;
           text-align: right;
+        }
+
+        .manual {
+          margin-top: 18px;
+          padding-top: 14px;
+          border-top: 1px solid rgba(255,255,255,.1);
+        }
+
+        label {
+          display: grid;
+          gap: 6px;
+          margin-top: 12px;
+          color: #aac1cc;
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        input,
+        textarea,
+        select {
+          width: 100%;
+          border: 1px solid rgba(0, 220, 255, .25);
+          border-radius: 14px;
+          padding: 12px;
+          color: white;
+          background: rgba(0, 0, 0, .25);
+          font-size: 16px;
+        }
+
+        textarea {
+          min-height: 70px;
         }
 
         @media (min-width: 620px) {
