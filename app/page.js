@@ -10,7 +10,7 @@ export default function Page() {
       fontSize: "32px",
       fontWeight: "bold"
     }}>
-      AI Infra Stock Kun！！
+      AI Infra Stock Kun！
     </main>
   )
 }
