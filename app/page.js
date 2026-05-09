@@ -2,51 +2,57 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 
-const STORAGE_KEY = "ai-infra-stock-kun-v1"
+const STORAGE_KEY = "ai_infra_stock_judgment_app_v2"
 
-const STOCKS = [
+const DEFAULT_STOCKS = [
   {
     code: "5803",
     name: "フジクラ",
     theme: "AI通信インフラ・光ファイバー",
-    target: 400000,
-    buyPlan: [150000, 130000, 120000],
+    weight: 50,
+    finalAmount: 400000,
+    plan: [150000, 130000, 120000],
     price: 6500,
     change: -2.4,
     volume: 4300000,
     volumeRate: 1.6,
     per: 22.5,
     ma25: 6200,
+    strength: 92,
   },
   {
     code: "5805",
     name: "SWCC",
     theme: "電線・電力インフラ",
-    target: 240000,
-    buyPlan: [90000, 70000, 80000],
+    weight: 30,
+    finalAmount: 240000,
+    plan: [90000, 70000, 80000],
     price: 8200,
     change: -1.2,
     volume: 680000,
     volumeRate: 1.3,
     per: 18.2,
     ma25: 7900,
+    strength: 82,
   },
   {
     code: "6857",
     name: "アドバンテスト",
     theme: "AI半導体・検査装置",
-    target: 160000,
-    buyPlan: [60000, 50000, 50000],
+    weight: 20,
+    finalAmount: 160000,
+    plan: [60000, 50000, 50000],
     price: 9800,
     change: 3.8,
     volume: 9200000,
     volumeRate: 1.8,
     per: 35.6,
     ma25: 9300,
+    strength: 78,
   },
 ]
 
-const EMPTY_HOLDINGS = {
+const DEFAULT_HOLDINGS = {
   "5803": { amount: "", shares: "", price: "", date: "", memo: "" },
   "5805": { amount: "", shares: "", price: "", date: "", memo: "" },
   "6857": { amount: "", shares: "", price: "", date: "", memo: "" },
@@ -60,80 +66,84 @@ function pct(v) {
   return Number(v || 0).toFixed(1) + "%"
 }
 
-function deviation(price, ma25) {
+function num(v) {
+  return Number(v || 0)
+}
+
+function maDeviation(price, ma25) {
   if (!price || !ma25) return 0
   return ((price - ma25) / ma25) * 100
 }
 
-function profitNow(stock, holding) {
-  const shares = Number(holding.shares || 0)
-  const buyPrice = Number(holding.price || 0)
-  const now = Number(stock.price || 0)
+function getProfit(stock, holding) {
+  const shares = num(holding.shares)
+  const buy = num(holding.price)
+  const now = num(stock.price)
 
-  if (!shares || !buyPrice) {
-    return { value: 0, profit: 0, rate: 0, has: false }
+  if (!shares || !buy) {
+    return { cost: 0, value: 0, profit: 0, rate: 0, has: false }
   }
 
-  const cost = shares * buyPrice
+  const cost = shares * buy
   const value = shares * now
   const profit = value - cost
   const rate = cost ? (profit / cost) * 100 : 0
 
-  return { value, profit, rate, has: true }
+  return { cost, value, profit, rate, has: true }
 }
 
-function judge(stock, holding) {
-  const dev = deviation(stock.price, stock.ma25)
-  const p = profitNow(stock, holding)
+function getStockJudge(stock, holding) {
+  const dev = maDeviation(stock.price, stock.ma25)
+  const p = getProfit(stock, holding)
 
   if (p.has) {
     if (p.rate >= 35) {
       return {
         label: "大きく利確",
-        color: "#ff4d6d",
-        bg: "rgba(255,77,109,.18)",
-        text: "利益がかなり大きいです。欲張らず、守る判断が大切です。",
-        action: "多めに売って利益を確保する候補。",
+        level: "danger",
+        score: 92,
+        reason: "利益がかなり大きいです。ここから欲張りすぎると利益を減らす可能性があります。",
+        action: "多めに売って利益を守る。残す分だけ上昇を狙う。",
       }
     }
 
     if (p.rate >= 25) {
       return {
         label: "半分利確",
-        color: "#ffb703",
-        bg: "rgba(255,183,3,.18)",
-        text: "十分な利益です。半分売ると心が安定します。",
-        action: "半分売って、残りで上昇を狙う。",
+        level: "profit",
+        score: 82,
+        reason: "十分な利益が出ています。半分売ると、勝ちを残しながら次も狙えます。",
+        action: "半分利確。残りはトレンド継続なら保有。",
       }
     }
 
     if (p.rate >= 15) {
       return {
         label: "一部利確",
-        color: "#00f5d4",
-        bg: "rgba(0,245,212,.16)",
-        text: "利益が出ています。少し売って利益を残す場面です。",
-        action: "一部だけ利確する候補。",
+        level: "profit",
+        score: 72,
+        reason: "利益が見えてきました。短期売買では利益を確定することも大切です。",
+        action: "一部だけ売って、利益を現金化する。",
       }
     }
 
     if (p.rate <= -10) {
       return {
         label: "損切り検討",
-        color: "#ff4d6d",
-        bg: "rgba(255,77,109,.18)",
-        text: "損が大きくなっています。放置せず理由を確認します。",
-        action: "買い増しより、まず損切りを考える。",
+        level: "danger",
+        score: 18,
+        reason: "損が大きくなっています。感情で持ち続けると傷が広がる可能性があります。",
+        action: "買った理由が崩れているなら損切り。買い増しはしない。",
       }
     }
 
     if (p.rate <= -8) {
       return {
         label: "警戒",
-        color: "#ffb703",
-        bg: "rgba(255,183,3,.18)",
-        text: "損が広がっています。焦って買い増ししない場面です。",
-        action: "様子見。理由のないナンピンは禁止。",
+        level: "warning",
+        score: 35,
+        reason: "損が広がっています。ここで焦って買い増すのは危険です。",
+        action: "いったん様子見。下げ止まりを確認する。",
       }
     }
   }
@@ -141,9 +151,9 @@ function judge(stock, holding) {
   if (stock.change >= 10 || dev >= 20) {
     return {
       label: "危険",
-      color: "#ff4d6d",
-      bg: "rgba(255,77,109,.18)",
-      text: "上がりすぎの可能性があります。高値づかみに注意です。",
+      level: "danger",
+      score: 20,
+      reason: "短期で上がりすぎています。高値づかみになりやすい場面です。",
       action: "今日は買わない。落ち着くまで待つ。",
     }
   }
@@ -151,20 +161,20 @@ function judge(stock, holding) {
   if (stock.change >= 5 || dev >= 15) {
     return {
       label: "待ち",
-      color: "#60a5fa",
-      bg: "rgba(96,165,250,.15)",
-      text: "短期で上がりすぎています。今買うと高値になりやすいです。",
-      action: "押し目を待つ。",
+      level: "wait",
+      score: 45,
+      reason: "上昇していますが、今から入ると高値になる可能性があります。",
+      action: "押し目を待つ。無理に追いかけない。",
     }
   }
 
   if (stock.change <= -3 && stock.change >= -7 && stock.volumeRate >= 1) {
     return {
       label: "押し目候補",
-      color: "#00f5d4",
-      bg: "rgba(0,245,212,.16)",
-      text: "下げていますが、出来高があります。テーマが残るなら候補です。",
-      action: "買うなら予定金額の一部だけ。",
+      level: "buy",
+      score: 75,
+      reason: "下げていますが、出来高がありテーマも残っています。",
+      action: "買うなら予定額の一部だけ。全力買いは禁止。",
     }
   }
 
@@ -176,47 +186,65 @@ function judge(stock, holding) {
   ) {
     return {
       label: "買い候補",
-      color: "#00f5d4",
-      bg: "rgba(0,245,212,.16)",
-      text: "上がりすぎではなく、出来高もあります。条件は悪くありません。",
-      action: "第1回から少額で入る候補。",
+      level: "buy",
+      score: 80,
+      reason: "上がりすぎではなく、出来高もあります。条件は悪くありません。",
+      action: "第1回分の一部から入る候補。",
     }
   }
 
   return {
     label: "様子見",
-    color: "#94a3b8",
-    bg: "rgba(148,163,184,.14)",
-    text: "強い買い理由も、強い危険サインもまだ弱いです。",
-    action: "無理に動かない。",
+    level: "neutral",
+    score: 55,
+    reason: "強い買い理由も、強い危険サインもまだ弱いです。",
+    action: "無理に動かず、次の更新を待つ。",
   }
 }
 
+function color(level) {
+  if (level === "buy") return "#00f5d4"
+  if (level === "profit") return "#7CFF6B"
+  if (level === "warning") return "#ffb703"
+  if (level === "danger") return "#ff4d6d"
+  if (level === "wait") return "#60a5fa"
+  return "#94a3b8"
+}
+
+function bg(level) {
+  if (level === "buy") return "rgba(0,245,212,.16)"
+  if (level === "profit") return "rgba(124,255,107,.15)"
+  if (level === "warning") return "rgba(255,183,3,.16)"
+  if (level === "danger") return "rgba(255,77,109,.18)"
+  if (level === "wait") return "rgba(96,165,250,.15)"
+  return "rgba(148,163,184,.14)"
+}
+
 export default function Page() {
-  const [holdings, setHoldings] = useState(EMPTY_HOLDINGS)
-  const [stocks, setStocks] = useState(STOCKS)
+  const [stocks, setStocks] = useState(DEFAULT_STOCKS)
+  const [holdings, setHoldings] = useState(DEFAULT_HOLDINGS)
   const [tab, setTab] = useState("home")
-  const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState("")
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        if (parsed.holdings) setHoldings(parsed.holdings)
-        if (parsed.stocks) setStocks(parsed.stocks)
-        if (parsed.lastUpdate) setLastUpdate(parsed.lastUpdate)
-      } catch {}
-    }
+    if (!saved) return
+
+    try {
+      const parsed = JSON.parse(saved)
+      if (parsed.stocks) setStocks(parsed.stocks)
+      if (parsed.holdings) setHoldings(parsed.holdings)
+      if (parsed.lastUpdate) setLastUpdate(parsed.lastUpdate)
+    } catch {}
   }, [])
 
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ holdings, stocks, lastUpdate })
+      JSON.stringify({ stocks, holdings, lastUpdate })
     )
-  }, [holdings, stocks, lastUpdate])
+  }, [stocks, holdings, lastUpdate])
 
   function refresh() {
     setLoading(true)
@@ -225,10 +253,11 @@ export default function Page() {
       setStocks((prev) =>
         prev.map((s) => {
           const move = (Math.random() - 0.5) * 2
-          const price = Math.max(1, Math.round(s.price * (1 + move / 100)))
+          const nextPrice = Math.max(1, Math.round(s.price * (1 + move / 100)))
+
           return {
             ...s,
-            price,
+            price: nextPrice,
             change: Number((s.change + move).toFixed(1)),
             volumeRate: Number(
               Math.max(0.5, s.volumeRate + (Math.random() - 0.5) * 0.3).toFixed(
@@ -238,6 +267,7 @@ export default function Page() {
           }
         })
       )
+
       setLastUpdate(new Date().toLocaleString("ja-JP"))
       setLoading(false)
     }, 500)
@@ -253,36 +283,58 @@ export default function Page() {
     let invested = 0
     let value = 0
     let profit = 0
+    let buyCount = 0
+    let dangerCount = 0
+    let profitSignalCount = 0
 
     stocks.forEach((stock) => {
       const h = holdings[stock.code]
-      const p = profitNow(stock, h)
-      invested += Number(h.price || 0) * Number(h.shares || 0)
+      const p = getProfit(stock, h)
+      const j = getStockJudge(stock, h)
+
+      invested += p.cost
       value += p.value
       profit += p.profit
+
+      if (j.level === "buy") buyCount += 1
+      if (j.level === "danger") dangerCount += 1
+      if (j.level === "profit") profitSignalCount += 1
     })
 
     const remain = Math.max(0, 800000 - invested)
     const rate = invested ? (profit / invested) * 100 : 0
 
-    const danger = stocks.some((s) => judge(s, holdings[s.code]).label === "危険")
-    const buy = stocks.some((s) => judge(s, holdings[s.code]).label.includes("買"))
-
     let label = "様子見"
-    let color = "#60a5fa"
-    let text = "今日は無理に動かず、条件がそろう銘柄だけ見ます。"
+    let level = "neutral"
+    let text = "今日は無理に動かず、条件がそろう銘柄だけ確認します。"
 
-    if (danger) {
+    if (dangerCount > 0) {
       label = "防御優先"
-      color = "#ff4d6d"
-      text = "危険サインがあります。買いより守りです。"
-    } else if (buy) {
+      level = "danger"
+      text = "危険サインがあります。買いより守りを優先します。"
+    } else if (profitSignalCount > 0) {
+      label = "利確確認"
+      level = "profit"
+      text = "利益が出ています。売って利益を残す判断も大切です。"
+    } else if (buyCount > 0) {
       label = "一部買い候補"
-      color = "#00f5d4"
-      text = "買い候補があります。ただし一気に買わない。"
+      level = "buy"
+      text = "買い候補があります。ただし一気に買わず、分けて入ります。"
     }
 
-    return { invested, value, profit, rate, remain, label, color, text }
+    return {
+      invested,
+      value,
+      profit,
+      rate,
+      remain,
+      label,
+      level,
+      text,
+      buyCount,
+      dangerCount,
+      profitSignalCount,
+    }
   }, [stocks, holdings])
 
   function updateHolding(code, key, value) {
@@ -295,16 +347,31 @@ export default function Page() {
     }))
   }
 
+  function updateStock(code, key, value) {
+    setStocks((prev) =>
+      prev.map((s) => (s.code === code ? { ...s, [key]: value } : s))
+    )
+  }
+
+  function resetData() {
+    const ok = window.confirm("保存データを初期化しますか？")
+    if (!ok) return
+    setStocks(DEFAULT_STOCKS)
+    setHoldings(DEFAULT_HOLDINGS)
+    setLastUpdate("")
+  }
+
   return (
     <main className="app">
       <section className="hero">
         <div>
-          <p className="sub">AI Infrastructure Stock OS</p>
+          <p className="sub">AI INFRA STOCK OS</p>
           <h1>AIインフラ株 判断くん</h1>
           <p className="lead">
-            短期売買で感情に流されないための判断アプリ。
+            フジクラ・SWCC・アドバンテストを、感情ではなくルールで判断。
           </p>
         </div>
+
         <button onClick={refresh}>{loading ? "更新中" : "更新"}</button>
       </section>
 
@@ -318,18 +385,21 @@ export default function Page() {
         <button className={tab === "edit" ? "on" : ""} onClick={() => setTab("edit")}>
           EDIT
         </button>
+        <button className={tab === "help" ? "on" : ""} onClick={() => setTab("help")}>
+          HELP
+        </button>
       </nav>
 
       {tab === "home" && (
         <section className="grid">
-          <div className="judgeBox" style={{ borderColor: summary.color }}>
+          <div className="mainJudge" style={{ borderColor: color(summary.level) }}>
             <p>今日の総合判断</p>
-            <h2 style={{ color: summary.color }}>{summary.label}</h2>
+            <h2 style={{ color: color(summary.level) }}>{summary.label}</h2>
             <span>{summary.text}</span>
           </div>
 
           <Card title="総資金" value={yen(1000000)} />
-          <Card title="投資予定" value={yen(800000)} />
+          <Card title="投資予定額" value={yen(800000)} />
           <Card title="現金キープ" value={yen(200000)} />
           <Card title="現在投資額" value={yen(summary.invested)} />
           <Card title="残り投資可能額" value={yen(summary.remain)} />
@@ -337,9 +407,27 @@ export default function Page() {
           <Card
             title="損益"
             value={yen(summary.profit)}
-            color={summary.profit >= 0 ? "#00f5d4" : "#ff4d6d"}
             sub={pct(summary.rate)}
+            color={summary.profit >= 0 ? "#00f5d4" : "#ff4d6d"}
           />
+
+          <div className="card full">
+            <p className="label">シグナル数</p>
+            <div className="signalGrid">
+              <div>
+                <b style={{ color: "#00f5d4" }}>{summary.buyCount}</b>
+                <span>買い候補</span>
+              </div>
+              <div>
+                <b style={{ color: "#7CFF6B" }}>{summary.profitSignalCount}</b>
+                <span>利確候補</span>
+              </div>
+              <div>
+                <b style={{ color: "#ff4d6d" }}>{summary.dangerCount}</b>
+                <span>危険</span>
+              </div>
+            </div>
+          </div>
 
           <div className="card full">
             <p className="label">購入計画</p>
@@ -359,6 +447,16 @@ export default function Page() {
             </div>
           </div>
 
+          <div className="card full">
+            <p className="label">最終配分</p>
+            {stocks.map((s) => (
+              <div className="row" key={s.code}>
+                <span>{s.name}</span>
+                <b>{yen(s.finalAmount)}</b>
+              </div>
+            ))}
+          </div>
+
           <p className="update">最終更新: {lastUpdate || "未更新"}</p>
         </section>
       )}
@@ -367,20 +465,30 @@ export default function Page() {
         <section className="list">
           {stocks.map((stock) => {
             const h = holdings[stock.code]
-            const j = judge(stock, h)
-            const p = profitNow(stock, h)
-            const dev = deviation(stock.price, stock.ma25)
+            const j = getStockJudge(stock, h)
+            const p = getProfit(stock, h)
+            const dev = maDeviation(stock.price, stock.ma25)
 
             return (
               <article className="stock" key={stock.code}>
-                <div className="top">
+                <div className="stockTop">
                   <div>
                     <p className="code">{stock.code}</p>
                     <h2>{stock.name}</h2>
                     <p className="theme">{stock.theme}</p>
                   </div>
-                  <div className="badge" style={{ color: j.color, background: j.bg }}>
+                  <div className="badge" style={{ color: color(j.level), background: bg(j.level) }}>
                     {j.label}
+                  </div>
+                </div>
+
+                <div className="scoreBox">
+                  <div>
+                    <span>AI SCORE</span>
+                    <b style={{ color: color(j.level) }}>{j.score}</b>
+                  </div>
+                  <div className="bar">
+                    <i style={{ width: j.score + "%", background: color(j.level) }} />
                   </div>
                 </div>
 
@@ -391,7 +499,7 @@ export default function Page() {
                     value={pct(stock.change)}
                     color={stock.change >= 0 ? "#00f5d4" : "#ff4d6d"}
                   />
-                  <Mini title="出来高" value={stock.volume.toLocaleString("ja-JP")} />
+                  <Mini title="出来高" value={num(stock.volume).toLocaleString("ja-JP")} />
                   <Mini title="出来高倍率" value={stock.volumeRate + "倍"} />
                   <Mini title="PER" value={stock.per + "倍"} />
                   <Mini
@@ -403,12 +511,15 @@ export default function Page() {
 
                 <div className="message">
                   <b>理由</b>
-                  <p>{j.text}</p>
+                  <p>{j.reason}</p>
                   <b>次の行動</b>
                   <p>{j.action}</p>
                 </div>
 
                 <div className="metrics">
+                  <Mini title="購入額" value={h.amount ? yen(h.amount) : "-"} />
+                  <Mini title="株数" value={h.shares || "-"} />
+                  <Mini title="取得単価" value={h.price ? yen(h.price) : "-"} />
                   <Mini title="評価額" value={yen(p.value)} />
                   <Mini
                     title="損益額"
@@ -435,6 +546,53 @@ export default function Page() {
             return (
               <div className="card full" key={stock.code}>
                 <h2>{stock.name}</h2>
+
+                <label>
+                  現在値
+                  <input
+                    inputMode="numeric"
+                    value={stock.price}
+                    onChange={(e) => updateStock(stock.code, "price", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  前日比%
+                  <input
+                    inputMode="decimal"
+                    value={stock.change}
+                    onChange={(e) => updateStock(stock.code, "change", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  出来高倍率
+                  <input
+                    inputMode="decimal"
+                    value={stock.volumeRate}
+                    onChange={(e) => updateStock(stock.code, "volumeRate", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  PER
+                  <input
+                    inputMode="decimal"
+                    value={stock.per}
+                    onChange={(e) => updateStock(stock.code, "per", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  25日線
+                  <input
+                    inputMode="numeric"
+                    value={stock.ma25}
+                    onChange={(e) => updateStock(stock.code, "ma25", e.target.value)}
+                  />
+                </label>
+
+                <hr />
 
                 <label>
                   購入金額
@@ -483,10 +641,47 @@ export default function Page() {
               </div>
             )
           })}
+
+          <button className="reset" onClick={resetData}>
+            保存データを初期化
+          </button>
+        </section>
+      )}
+
+      {tab === "help" && (
+        <section className="list">
+          <div className="card full">
+            <h2>このアプリの考え方</h2>
+            <p>
+              このアプリは、短期売買で感情的にならないための判断表です。
+              上がっているから買う、下がって怖いから売る、を防ぎます。
+            </p>
+          </div>
+
+          <div className="card full">
+            <h2>色の意味</h2>
+            <p style={{ color: "#00f5d4" }}>青緑: 買い候補。ただし少額だけ。</p>
+            <p style={{ color: "#7CFF6B" }}>緑: 利確候補。利益を守る。</p>
+            <p style={{ color: "#60a5fa" }}>青: 待ち。焦らない。</p>
+            <p style={{ color: "#ffb703" }}>黄色: 注意。慎重に見る。</p>
+            <p style={{ color: "#ff4d6d" }}>赤: 危険。買いより防御。</p>
+          </div>
+
+          <div className="card full">
+            <h2>大切なルール</h2>
+            <p>1回で80万円を全部使わない。</p>
+            <p>利益が出たら一部売って守る。</p>
+            <p>損が広がったら買い増しより確認。</p>
+            <p>現金20万円は必ず残す。</p>
+          </div>
         </section>
       )}
 
       <style jsx>{`
+        * {
+          box-sizing: border-box;
+        }
+
         .app {
           min-height: 100vh;
           padding: 16px 14px 90px;
@@ -504,7 +699,7 @@ export default function Page() {
           padding: 18px;
           border: 1px solid rgba(0, 220, 255, .35);
           border-radius: 22px;
-          background: rgba(5, 16, 32, .85);
+          background: rgba(5, 16, 32, .86);
           box-shadow: 0 0 24px rgba(0, 170, 255, .18);
         }
 
@@ -539,18 +734,24 @@ export default function Page() {
         }
 
         .nav {
+          position: sticky;
+          top: 0;
+          z-index: 10;
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 8px;
-          margin: 14px 0;
+          padding: 12px 0;
+          background: rgba(2, 7, 19, .92);
+          backdrop-filter: blur(10px);
         }
 
         .nav button {
           border: 1px solid rgba(120, 190, 220, .25);
           border-radius: 999px;
-          padding: 11px 8px;
+          padding: 11px 6px;
           color: #a9bfca;
           background: rgba(255, 255, 255, .05);
+          font-size: 12px;
           font-weight: 800;
         }
 
@@ -568,30 +769,30 @@ export default function Page() {
 
         .card,
         .stock,
-        .judgeBox {
+        .mainJudge {
           padding: 16px;
           border: 1px solid rgba(0, 220, 255, .25);
           border-radius: 20px;
-          background: rgba(7, 18, 34, .85);
+          background: rgba(7, 18, 34, .86);
         }
 
-        .judgeBox {
+        .mainJudge {
           border-width: 2px;
         }
 
-        .judgeBox p,
+        .mainJudge p,
         .label {
           margin: 0 0 8px;
           color: #8aa6b5;
           font-size: 12px;
         }
 
-        .judgeBox h2 {
+        .mainJudge h2 {
           margin: 0;
-          font-size: 32px;
+          font-size: 34px;
         }
 
-        .judgeBox span {
+        .mainJudge span {
           display: block;
           margin-top: 8px;
           color: #d7e9f0;
@@ -613,23 +814,38 @@ export default function Page() {
           grid-column: 1 / -1;
         }
 
-        .plans {
+        .plans,
+        .signalGrid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 8px;
         }
 
-        .plans div {
+        .plans div,
+        .signalGrid div {
           padding: 12px;
           border-radius: 14px;
           background: rgba(255, 255, 255, .06);
         }
 
-        .plans span {
+        .plans span,
+        .signalGrid span {
           display: block;
           margin-top: 6px;
           color: #8fdfff;
+          font-size: 12px;
           font-weight: bold;
+        }
+
+        .signalGrid b {
+          font-size: 28px;
+        }
+
+        .row {
+          display: flex;
+          justify-content: space-between;
+          padding: 12px 0;
+          border-bottom: 1px solid rgba(255,255,255,.08);
         }
 
         .update {
@@ -638,7 +854,7 @@ export default function Page() {
           font-size: 12px;
         }
 
-        .top {
+        .stockTop {
           display: grid;
           grid-template-columns: 1fr 120px;
           gap: 12px;
@@ -664,6 +880,42 @@ export default function Page() {
           text-align: center;
           font-size: 18px;
           font-weight: 900;
+        }
+
+        .scoreBox {
+          margin-top: 14px;
+          padding: 12px;
+          border-radius: 16px;
+          background: rgba(255,255,255,.05);
+        }
+
+        .scoreBox div:first-child {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .scoreBox span {
+          color: #8aa6b5;
+          font-size: 12px;
+        }
+
+        .scoreBox b {
+          font-size: 28px;
+        }
+
+        .bar {
+          height: 8px;
+          margin-top: 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,.1);
+          overflow: hidden;
+        }
+
+        .bar i {
+          display: block;
+          height: 100%;
+          border-radius: 999px;
         }
 
         .metrics {
@@ -698,7 +950,8 @@ export default function Page() {
           background: rgba(0, 0, 0, .2);
         }
 
-        .message p {
+        .message p,
+        .card p {
           color: #d5e6ee;
           font-size: 13px;
           line-height: 1.7;
@@ -726,6 +979,21 @@ export default function Page() {
 
         textarea {
           min-height: 70px;
+        }
+
+        hr {
+          border: none;
+          border-top: 1px solid rgba(255,255,255,.12);
+          margin: 18px 0;
+        }
+
+        .reset {
+          border: 1px solid rgba(255,77,109,.5);
+          border-radius: 16px;
+          padding: 14px;
+          color: #ffdce0;
+          background: rgba(120,0,20,.35);
+          font-weight: 900;
         }
 
         @media (min-width: 620px) {
