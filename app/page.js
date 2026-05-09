@@ -2,7 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 
-const STORAGE_KEY = "signal_os_practical_v1"
+const STORAGE_KEY = "signal_os_risk_check_v1"
+
+const TOTAL_CASH = 1000000
+const INVEST_LIMIT = 800000
+const KEEP_CASH = 200000
 
 const BASE_STOCKS = [
   {
@@ -11,6 +15,7 @@ const BASE_STOCKS = [
     name: "フジクラ",
     theme: "AI通信インフラ・光ファイバー",
     target: 400000,
+    plans: [150000, 130000, 120000],
     price: 6500,
     prevClose: 6680,
     volume: 4300000,
@@ -25,6 +30,7 @@ const BASE_STOCKS = [
     name: "SWCC",
     theme: "電線・電力インフラ",
     target: 240000,
+    plans: [90000, 70000, 80000],
     price: 8200,
     prevClose: 8350,
     volume: 680000,
@@ -39,6 +45,7 @@ const BASE_STOCKS = [
     name: "アドバンテスト",
     theme: "AI半導体・検査装置",
     target: 160000,
+    plans: [60000, 50000, 50000],
     price: 9800,
     prevClose: 9450,
     volume: 9200000,
@@ -50,43 +57,82 @@ const BASE_STOCKS = [
 ]
 
 const EMPTY_HOLDINGS = {
-  "5803": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静" },
-  "5805": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静" },
-  "6857": { shares: "", buyPrice: "", amount: "", memo: "", emotion: "冷静" },
+  "5803": {
+    shares: "",
+    buyPrice: "",
+    amount: "",
+    memo: "",
+    emotion: "冷静",
+  },
+  "5805": {
+    shares: "",
+    buyPrice: "",
+    amount: "",
+    memo: "",
+    emotion: "冷静",
+  },
+  "6857": {
+    shares: "",
+    buyPrice: "",
+    amount: "",
+    memo: "",
+    emotion: "冷静",
+  },
 }
 
-function n(v) {
-  return Number(v || 0)
+function n(value) {
+  return Number(value || 0)
 }
 
-function yen(v) {
-  return n(v).toLocaleString("ja-JP") + "円"
+function yen(value) {
+  return n(value).toLocaleString("ja-JP") + "円"
 }
 
-function pct(v) {
-  return n(v).toFixed(1) + "%"
+function pct(value) {
+  return n(value).toFixed(1) + "%"
 }
 
 function rate(now, base) {
-  return base ? ((now - base) / base) * 100 : 0
+  if (!now || !base) return 0
+  return ((now - base) / base) * 100
 }
 
 function dev(price, ma) {
-  return ma ? ((price - ma) / ma) * 100 : 0
+  if (!price || !ma) return 0
+  return ((price - ma) / ma) * 100
 }
 
-function calcProfit(stock, h) {
-  const shares = n(h.shares)
-  const buy = n(h.buyPrice)
-  if (!shares || !buy) return { cost: 0, value: 0, profit: 0, rate: 0, has: false }
-  const cost = shares * buy
-  const value = shares * n(stock.price)
+function calcProfit(stock, holding) {
+  const shares = n(holding.shares)
+  const buyPrice = n(holding.buyPrice)
+  const currentPrice = n(stock.price)
+
+  if (!shares || !buyPrice) {
+    return {
+      cost: 0,
+      value: 0,
+      profit: 0,
+      rate: 0,
+      has: false,
+    }
+  }
+
+  const cost = shares * buyPrice
+  const value = shares * currentPrice
   const profit = value - cost
-  return { cost, value, profit, rate: cost ? (profit / cost) * 100 : 0, has: true }
+  const profitRate = cost ? (profit / cost) * 100 : 0
+
+  return {
+    cost,
+    value,
+    profit,
+    rate: profitRate,
+    has: true,
+  }
 }
 
-function levelColor(level) {
-  return {
+function getLevelColor(level) {
+  const colors = {
     buy: "#00f5d4",
     profit: "#7cff6b",
     wait: "#60a5fa",
@@ -94,11 +140,13 @@ function levelColor(level) {
     danger: "#ff4d6d",
     crash: "#c084fc",
     neutral: "#94a3b8",
-  }[level] || "#94a3b8"
+  }
+
+  return colors[level] || colors.neutral
 }
 
-function levelBg(level) {
-  return {
+function getLevelBg(level) {
+  const colors = {
     buy: "rgba(0,245,212,.16)",
     profit: "rgba(124,255,107,.15)",
     wait: "rgba(96,165,250,.15)",
@@ -106,119 +154,216 @@ function levelBg(level) {
     danger: "rgba(255,77,109,.18)",
     crash: "rgba(192,132,252,.18)",
     neutral: "rgba(148,163,184,.12)",
-  }[level] || "rgba(148,163,184,.12)"
+  }
+
+  return colors[level] || colors.neutral
 }
 
-function judgeStock(stock, h, market, summary) {
-  const chg = rate(n(stock.price), n(stock.prevClose))
-  const d = dev(n(stock.price), n(stock.ma25))
-  const p = calcProfit(stock, h)
-  const positionRate = summary.totalCost ? (p.cost / summary.totalCost) * 100 : 0
+function getBuyStage(stock, invested) {
+  const p1 = n(stock.plans[0])
+  const p2 = n(stock.plans[1])
+  const p3 = n(stock.plans[2])
+  const target = n(stock.target)
 
-  const noBuyReasons = []
+  if (invested <= 0) {
+    return {
+      stage: "第1回待機",
+      nextAmount: p1,
+      progress: 0,
+      text: "まだ入っていません。条件が良い時だけ第1回を検討。",
+    }
+  }
 
-  if (market.mode === "crash") noBuyReasons.push("市場が暴落警戒モード")
-  if (market.mode === "warning") noBuyReasons.push("市場が警戒モード")
-  if (chg >= 5) noBuyReasons.push("短期で上がりすぎ")
-  if (d >= 15) noBuyReasons.push("25日線から離れすぎ")
-  if (n(stock.per) >= 35) noBuyReasons.push("PERが高め")
-  if (positionRate >= 35) noBuyReasons.push("1銘柄への集中度が高い")
-  if (summary.cash < 200000) noBuyReasons.push("現金20万円ルールを割りそう")
-  if (h.emotion === "焦り" || h.emotion === "欲") noBuyReasons.push("感情が強い状態")
+  if (invested < p1) {
+    return {
+      stage: "第1回途中",
+      nextAmount: Math.max(0, p1 - invested),
+      progress: Math.min(100, (invested / target) * 100),
+      text: "第1回の途中です。焦って追加しない。",
+    }
+  }
+
+  if (invested < p1 + p2) {
+    return {
+      stage: "第2回待機",
+      nextAmount: Math.max(0, p1 + p2 - invested),
+      progress: Math.min(100, (invested / target) * 100),
+      text: "第2回は地合いと押し目を確認してから。",
+    }
+  }
+
+  if (invested < target) {
+    return {
+      stage: "第3回待機",
+      nextAmount: Math.max(0, target - invested),
+      progress: Math.min(100, (invested / target) * 100),
+      text: "最終追加は慎重。高値追いは禁止。",
+    }
+  }
+
+  return {
+    stage: "購入完了",
+    nextAmount: 0,
+    progress: 100,
+    text: "予定額まで到達。追加より利確と管理を優先。",
+  }
+}
+
+function makeRiskChecks(stock, holding, market, summary) {
+  const profit = calcProfit(stock, holding)
+  const change = rate(n(stock.price), n(stock.prevClose))
+  const deviation = dev(n(stock.price), n(stock.ma25))
+  const positionRate = summary.totalCost ? (profit.cost / summary.totalCost) * 100 : 0
+  const risks = []
+
+  if (market.mode === "crash") {
+    risks.push("市場が暴落監視モード")
+  }
+
+  if (market.mode === "warning") {
+    risks.push("市場が警戒モード")
+  }
+
+  if (change >= 5) {
+    risks.push("短期で上がりすぎ")
+  }
+
+  if (deviation >= 15) {
+    risks.push("25日線から離れすぎ")
+  }
+
+  if (n(stock.per) >= 35) {
+    risks.push("PERが高め")
+  }
+
+  if (n(stock.volumeRate) < 1) {
+    risks.push("出来高が弱い")
+  }
+
+  if (summary.cash < KEEP_CASH) {
+    risks.push("現金20万円ルールを割っている")
+  }
+
+  if (positionRate >= 40) {
+    risks.push("1銘柄への集中度が高い")
+  }
+
+  if (profit.has && profit.rate <= -8) {
+    risks.push("含み損が警戒ライン")
+  }
+
+  if (holding.emotion === "焦り" || holding.emotion === "欲") {
+    risks.push("感情が強い状態")
+  }
+
+  return risks
+}
+
+function judgeStock(stock, holding, market, summary) {
+  const profit = calcProfit(stock, holding)
+  const change = rate(n(stock.price), n(stock.prevClose))
+  const deviation = dev(n(stock.price), n(stock.ma25))
+  const risks = makeRiskChecks(stock, holding, market, summary)
 
   if (market.mode === "crash") {
     return {
       label: "防御",
       level: "crash",
       score: 18,
-      reason: "市場全体が荒れています。個別株よりも資金管理を優先します。",
+      reason: "市場が荒れています。個別株よりも資金管理が優先です。",
       action: "買い急がない。現金を守る。",
-      noBuyReasons,
-      nextStep: "WAIT",
+      noBuyReasons: risks,
+      permission: "買い禁止",
     }
   }
 
-  if (p.has && p.rate >= 35) {
+  if (profit.has && profit.rate >= 35) {
     return {
       label: "大きく利確",
       level: "profit",
       score: 92,
-      reason: "利益がかなり大きいです。勝ちを残す場面です。",
-      action: "多めに売って利益を確保。",
-      noBuyReasons,
-      nextStep: "SELL",
+      reason: "利益が大きく出ています。短期売買では勝ちを残す場面です。",
+      action: "多めに売って利益を守る。",
+      noBuyReasons: risks,
+      permission: "売り優先",
     }
   }
 
-  if (p.has && p.rate >= 20) {
+  if (profit.has && profit.rate >= 20) {
     return {
       label: "利確候補",
       level: "profit",
       score: 84,
       reason: "十分な利益が出ています。少し売って守る判断ができます。",
       action: "一部または半分利確。",
-      noBuyReasons,
-      nextStep: "SELL",
+      noBuyReasons: risks,
+      permission: "売り検討",
     }
   }
 
-  if (p.has && p.rate <= -10) {
+  if (profit.has && profit.rate <= -10) {
     return {
       label: "損切り検討",
       level: "danger",
       score: 16,
       reason: "損失が広がっています。買い増しより撤退判断を優先します。",
       action: "買った理由が崩れたなら損切り。",
-      noBuyReasons,
-      nextStep: "CUT",
+      noBuyReasons: risks,
+      permission: "追加禁止",
     }
   }
 
-  if (chg >= 10 || d >= 20) {
+  if (change >= 10 || deviation >= 20) {
     return {
       label: "危険",
       level: "danger",
-      score: 20,
+      score: 22,
       reason: "上がりすぎです。高値づかみになりやすい場面です。",
       action: "今日は買わない。",
-      noBuyReasons,
-      nextStep: "WAIT",
+      noBuyReasons: risks,
+      permission: "買い禁止",
     }
   }
 
-  if (noBuyReasons.length >= 3) {
+  if (risks.length >= 3) {
     return {
       label: "買わない",
       level: "warning",
       score: 35,
-      reason: "買わない理由が複数あります。今は守る判断が優先です。",
+      reason: "買わない理由が複数あります。守りを優先します。",
       action: "待機。次の押し目まで動かない。",
-      noBuyReasons,
-      nextStep: "WAIT",
+      noBuyReasons: risks,
+      permission: "待機",
     }
   }
 
-  if (chg <= -3 && chg >= -7 && n(stock.volumeRate) >= 1 && summary.cash >= 200000) {
+  if (change <= -3 && change >= -7 && n(stock.volumeRate) >= 1 && summary.cash >= KEEP_CASH) {
     return {
       label: "少額買い",
       level: "buy",
       score: 80,
       reason: "下げていますが、出来高があります。少額なら検討できます。",
       action: "予定額の一部だけ。全力買いは禁止。",
-      noBuyReasons,
-      nextStep: "BUY_SMALL",
+      noBuyReasons: risks,
+      permission: "少額のみ",
     }
   }
 
-  if (chg >= -5 && chg <= 3 && n(stock.volumeRate) >= 1.5 && d <= 10 && summary.cash >= 200000) {
+  if (
+    change >= -5 &&
+    change <= 3 &&
+    n(stock.volumeRate) >= 1.5 &&
+    deviation <= 10 &&
+    summary.cash >= KEEP_CASH
+  ) {
     return {
       label: "買い候補",
       level: "buy",
       score: 76,
       reason: "上がりすぎではなく、出来高もあります。",
       action: "第1回分の一部から入る候補。",
-      noBuyReasons,
-      nextStep: "BUY_SMALL",
+      noBuyReasons: risks,
+      permission: "少額のみ",
     }
   }
 
@@ -227,9 +372,9 @@ function judgeStock(stock, h, market, summary) {
     level: "neutral",
     score: 55,
     reason: "強い買い理由も、強い危険サインもまだ弱いです。",
-    action: "無理に動かない。現金保持もポジション。",
-    noBuyReasons,
-    nextStep: "WAIT",
+    action: "無理に動かない。現金保持もポジションです。",
+    noBuyReasons: risks,
+    permission: "待機",
   }
 }
 
@@ -240,6 +385,7 @@ export default function Page() {
   const [tab, setTab] = useState("home")
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState("")
+  const [apiStatus, setApiStatus] = useState("未取得")
   const [market, setMarket] = useState({
     mode: "normal",
     label: "通常",
@@ -251,55 +397,84 @@ export default function Page() {
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY)
+
     if (!saved) return
+
     try {
-      const p = JSON.parse(saved)
-      if (p.holdings) setHoldings(p.holdings)
-      if (p.logs) setLogs(p.logs)
+      const parsed = JSON.parse(saved)
+
+      if (parsed.holdings) {
+        setHoldings({
+          "5803": { ...EMPTY_HOLDINGS["5803"], ...parsed.holdings["5803"] },
+          "5805": { ...EMPTY_HOLDINGS["5805"], ...parsed.holdings["5805"] },
+          "6857": { ...EMPTY_HOLDINGS["6857"], ...parsed.holdings["6857"] },
+        })
+      }
+
+      if (parsed.logs) setLogs(parsed.logs)
     } catch {}
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ holdings, logs }))
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        holdings,
+        logs,
+      })
+    )
   }, [holdings, logs])
 
   async function fetchMarket() {
     setLoading(true)
+
     try {
       const res = await fetch("/api/stocks", { cache: "no-store" })
       const json = await res.json()
       const data = json.data || []
 
+      if (!json.ok || data.length === 0) {
+        setApiStatus("API取得失敗")
+      } else {
+        setApiStatus("API取得成功")
+      }
+
       setStocks((prev) =>
-        prev.map((s) => {
-          const f = data.find((x) => x.symbol === s.symbol)
-          if (!f) return s
+        prev.map((stock) => {
+          const found = data.find((item) => item.symbol === stock.symbol)
+
+          if (!found) return stock
+
           return {
-            ...s,
-            price: Math.round(f.regularMarketPrice || s.price),
-            prevClose: Math.round(f.regularMarketPreviousClose || s.prevClose),
-            volume: f.regularMarketVolume || s.volume,
-            per: f.trailingPE ? Number(f.trailingPE.toFixed(1)) : s.per,
+            ...stock,
+            price: Math.round(found.regularMarketPrice || stock.price),
+            prevClose: Math.round(found.regularMarketPreviousClose || stock.prevClose),
+            volume: found.regularMarketVolume || stock.volume,
+            per: found.trailingPE ? Number(found.trailingPE.toFixed(1)) : stock.per,
           }
         })
       )
 
-      const nikkei = data.find((x) => x.symbol === "^N225")
-      const vix = data.find((x) => x.symbol === "^VIX")
-      const usd = data.find((x) => x.symbol === "JPY=X")
+      const nikkei = data.find((item) => item.symbol === "^N225")
+      const vix = data.find((item) => item.symbol === "^VIX")
+      const usd = data.find((item) => item.symbol === "JPY=X")
 
-      const nikkeiRate = rate(nikkei?.regularMarketPrice, nikkei?.regularMarketPreviousClose)
-      const vixVal = n(vix?.regularMarketPrice)
+      const nikkeiRate = rate(
+        n(nikkei?.regularMarketPrice),
+        n(nikkei?.regularMarketPreviousClose)
+      )
+
+      const vixValue = n(vix?.regularMarketPrice)
 
       let mode = "normal"
       let label = "通常"
       let reason = "市場は通常モードです。"
 
-      if (vixVal >= 30 || nikkeiRate <= -3) {
+      if (vixValue >= 30 || nikkeiRate <= -3) {
         mode = "crash"
         label = "暴落監視"
         reason = "市場が荒れています。攻めより防御。現金を守ります。"
-      } else if (vixVal >= 22 || nikkeiRate <= -1.5) {
+      } else if (vixValue >= 22 || nikkeiRate <= -1.5) {
         mode = "warning"
         label = "警戒"
         reason = "地合いがやや悪いです。買い急ぎ禁止。"
@@ -314,12 +489,13 @@ export default function Page() {
         label,
         reason,
         nikkei: nikkei?.regularMarketPrice ? yen(Math.round(nikkei.regularMarketPrice)) : "-",
-        vix: vixVal || "-",
+        vix: vixValue || "-",
         usd: usd?.regularMarketPrice ? Number(usd.regularMarketPrice).toFixed(2) : "-",
       })
 
       setLastUpdate(new Date().toLocaleString("ja-JP"))
     } catch {
+      setApiStatus("API取得失敗")
       setLastUpdate("API取得失敗。保存データ表示中。")
     } finally {
       setLoading(false)
@@ -337,48 +513,71 @@ export default function Page() {
     let totalValue = 0
     let totalProfit = 0
 
-    stocks.forEach((s) => {
-      const p = calcProfit(s, holdings[s.code])
+    stocks.forEach((stock) => {
+      const p = calcProfit(stock, holdings[stock.code])
       totalCost += p.cost
       totalValue += p.value
       totalProfit += p.profit
     })
 
-    const cash = Math.max(0, 1000000 - totalCost)
-    const remain = Math.max(0, 800000 - totalCost)
-    const rateTotal = totalCost ? (totalProfit / totalCost) * 100 : 0
+    const cash = Math.max(0, TOTAL_CASH - totalCost)
+    const remain = Math.max(0, INVEST_LIMIT - totalCost)
+    const profitRate = totalCost ? (totalProfit / totalCost) * 100 : 0
 
-    return { totalCost, totalValue, totalProfit, cash, remain, rateTotal }
+    return {
+      totalCost,
+      totalValue,
+      totalProfit,
+      profitRate,
+      cash,
+      remain,
+    }
   }, [stocks, holdings])
 
   const fullSummary = useMemo(() => {
-    let score = 0
+    let scoreTotal = 0
     let buy = 0
     let sell = 0
-    let danger = 0
     let wait = 0
+    let danger = 0
+    let ruleAlerts = 0
 
-    stocks.forEach((s) => {
-      const j = judgeStock(s, holdings[s.code], market, baseSummary)
-      score += j.score
-      if (j.level === "buy") buy++
-      if (j.level === "profit") sell++
-      if (j.level === "danger" || j.level === "crash") danger++
-      if (j.level === "neutral" || j.level === "wait" || j.level === "warning") wait++
+    stocks.forEach((stock) => {
+      const j = judgeStock(stock, holdings[stock.code], market, baseSummary)
+      scoreTotal += j.score
+
+      if (j.level === "buy") buy += 1
+      if (j.level === "profit") sell += 1
+      if (j.level === "neutral" || j.level === "wait" || j.level === "warning") wait += 1
+      if (j.level === "danger" || j.level === "crash") danger += 1
+      if (j.noBuyReasons.length >= 3) ruleAlerts += 1
     })
 
-    return { ...baseSummary, score: Math.round(score / stocks.length), buy, sell, danger, wait }
+    return {
+      ...baseSummary,
+      score: Math.round(scoreTotal / stocks.length),
+      buy,
+      sell,
+      wait,
+      danger,
+      ruleAlerts,
+    }
   }, [stocks, holdings, market, baseSummary])
 
   function updateHolding(code, key, value) {
     setHoldings((prev) => ({
       ...prev,
-      [code]: { ...prev[code], [key]: value },
+      [code]: {
+        ...prev[code],
+        [key]: value,
+      },
     }))
   }
 
   function addLog(stock, action) {
     const h = holdings[stock.code]
+    const p = calcProfit(stock, h)
+
     setLogs((prev) =>
       [
         {
@@ -388,12 +587,19 @@ export default function Page() {
           code: stock.code,
           action,
           price: stock.price,
+          profit: p.profit,
           emotion: h.emotion,
           memo: h.memo,
         },
         ...prev,
       ].slice(0, 50)
     )
+  }
+
+  function clearLogs() {
+    const ok = window.confirm("ログを消しますか？")
+    if (!ok) return
+    setLogs([])
   }
 
   return (
@@ -408,25 +614,34 @@ export default function Page() {
       </section>
 
       <nav className="nav">
-        {["home", "stock", "edit", "log", "help"].map((x) => (
-          <button key={x} className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
-            {x.toUpperCase()}
+        {["home", "stock", "edit", "log", "help"].map((item) => (
+          <button
+            key={item}
+            className={tab === item ? "on" : ""}
+            onClick={() => setTab(item)}
+          >
+            {item.toUpperCase()}
           </button>
         ))}
       </nav>
 
       {tab === "home" && (
         <section className="grid">
-          <div className="judge" style={{ borderColor: levelColor(market.mode) }}>
+          <div className="judge" style={{ borderColor: getLevelColor(market.mode) }}>
             <p className="label">MARKET MODE</p>
-            <h2 style={{ color: levelColor(market.mode) }}>{market.label}</h2>
+            <h2 style={{ color: getLevelColor(market.mode) }}>{market.label}</h2>
             <p>{market.reason}</p>
           </div>
 
           <Card title="SIGNAL SCORE" value={fullSummary.score} color="#00f5d4" />
           <Card title="投資額" value={yen(fullSummary.totalCost)} />
           <Card title="評価額" value={yen(fullSummary.totalValue)} />
-          <Card title="損益" value={yen(fullSummary.totalProfit)} sub={pct(fullSummary.rateTotal)} color={fullSummary.totalProfit >= 0 ? "#00f5d4" : "#ff4d6d"} />
+          <Card
+            title="損益"
+            value={yen(fullSummary.totalProfit)}
+            sub={pct(fullSummary.profitRate)}
+            color={fullSummary.totalProfit >= 0 ? "#00f5d4" : "#ff4d6d"}
+          />
           <Card title="現金目安" value={yen(fullSummary.cash)} />
           <Card title="残り投資枠" value={yen(fullSummary.remain)} />
           <Card title="日経平均" value={market.nikkei} />
@@ -436,77 +651,133 @@ export default function Page() {
           <div className="card full">
             <p className="label">SIGNALS</p>
             <div className="signals">
-              <div><b style={{ color: "#00f5d4" }}>{fullSummary.buy}</b><span>買い</span></div>
-              <div><b style={{ color: "#7cff6b" }}>{fullSummary.sell}</b><span>利確</span></div>
-              <div><b style={{ color: "#60a5fa" }}>{fullSummary.wait}</b><span>待機</span></div>
-              <div><b style={{ color: "#ff4d6d" }}>{fullSummary.danger}</b><span>危険</span></div>
+              <div>
+                <b style={{ color: "#00f5d4" }}>{fullSummary.buy}</b>
+                <span>買い</span>
+              </div>
+              <div>
+                <b style={{ color: "#7cff6b" }}>{fullSummary.sell}</b>
+                <span>利確</span>
+              </div>
+              <div>
+                <b style={{ color: "#60a5fa" }}>{fullSummary.wait}</b>
+                <span>待機</span>
+              </div>
+              <div>
+                <b style={{ color: "#ff4d6d" }}>{fullSummary.danger}</b>
+                <span>危険</span>
+              </div>
             </div>
           </div>
 
           <div className="card full">
             <h2>CASH MODE</h2>
             <p>現金保持もポジション。焦って買わないことも投資判断です。</p>
+            <div className="ruleBox">
+              <Rule ok={fullSummary.cash >= KEEP_CASH} text="現金20万円ルール" />
+              <Rule ok={fullSummary.totalCost <= INVEST_LIMIT} text="投資上限80万円ルール" />
+              <Rule ok={fullSummary.ruleAlerts === 0} text="買わない理由が多すぎない" />
+            </div>
           </div>
 
-          <p className="update">最終更新: {lastUpdate || "未更新"}</p>
+          <div className="card full">
+            <p className="label">API STATUS</p>
+            <h3>{apiStatus}</h3>
+            <p>最終更新: {lastUpdate || "未更新"}</p>
+          </div>
         </section>
       )}
 
       {tab === "stock" && (
         <section className="list">
-          {stocks.map((s) => {
-            const h = holdings[s.code]
-            const p = calcProfit(s, h)
-            const j = judgeStock(s, h, market, fullSummary)
-            const chg = rate(s.price, s.prevClose)
-            const d = dev(s.price, s.ma25)
+          {stocks.map((stock) => {
+            const holding = holdings[stock.code]
+            const p = calcProfit(stock, holding)
+            const j = judgeStock(stock, holding, market, fullSummary)
+            const change = rate(stock.price, stock.prevClose)
+            const deviation = dev(stock.price, stock.ma25)
+            const stage = getBuyStage(stock, p.cost)
 
             return (
-              <article className="stock" key={s.code}>
+              <article className="stock" key={stock.code}>
                 <div className="top">
                   <div>
-                    <p className="code">{s.code}</p>
-                    <h2>{s.name}</h2>
-                    <p className="theme">{s.theme}</p>
+                    <p className="code">{stock.code}</p>
+                    <h2>{stock.name}</h2>
+                    <p className="theme">{stock.theme}</p>
                   </div>
-                  <div className="badge" style={{ color: levelColor(j.level), background: levelBg(j.level) }}>
+                  <div
+                    className="badge"
+                    style={{
+                      color: getLevelColor(j.level),
+                      background: getLevelBg(j.level),
+                    }}
+                  >
                     {j.label}
                   </div>
                 </div>
 
                 <div className="score">
                   <span>SIGNAL SCORE</span>
-                  <b style={{ color: levelColor(j.level) }}>{j.score}</b>
+                  <b style={{ color: getLevelColor(j.level) }}>{j.score}</b>
                 </div>
 
                 <div className="metrics">
-                  <Mini title="現在値" value={yen(s.price)} />
-                  <Mini title="前日比" value={pct(chg)} color={chg >= 0 ? "#00f5d4" : "#ff4d6d"} />
-                  <Mini title="出来高" value={n(s.volume).toLocaleString("ja-JP")} />
-                  <Mini title="出来高倍率" value={s.volumeRate + "倍"} />
-                  <Mini title="PER" value={s.per + "倍"} />
-                  <Mini title="25日線乖離" value={pct(d)} color={d >= 0 ? "#00f5d4" : "#ff4d6d"} />
+                  <Mini title="現在値" value={yen(stock.price)} />
+                  <Mini
+                    title="前日比"
+                    value={pct(change)}
+                    color={change >= 0 ? "#00f5d4" : "#ff4d6d"}
+                  />
+                  <Mini title="出来高" value={n(stock.volume).toLocaleString("ja-JP")} />
+                  <Mini title="出来高倍率" value={stock.volumeRate + "倍"} />
+                  <Mini title="PER" value={stock.per + "倍"} />
+                  <Mini
+                    title="25日線乖離"
+                    value={pct(deviation)}
+                    color={deviation >= 0 ? "#00f5d4" : "#ff4d6d"}
+                  />
                   <Mini title="評価額" value={yen(p.value)} />
-                  <Mini title="損益" value={yen(p.profit)} color={p.profit >= 0 ? "#00f5d4" : "#ff4d6d"} />
+                  <Mini
+                    title="損益"
+                    value={yen(p.profit)}
+                    color={p.profit >= 0 ? "#00f5d4" : "#ff4d6d"}
+                  />
                 </div>
 
                 <div className="message">
                   <b>判断理由</b>
                   <p>{j.reason}</p>
+
                   <b>次の行動</b>
                   <p>{j.action}</p>
+
                   <b>買わない理由</b>
                   {j.noBuyReasons.length ? (
-                    <ul>{j.noBuyReasons.map((r) => <li key={r}>{r}</li>)}</ul>
+                    <ul>
+                      {j.noBuyReasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
                   ) : (
                     <p>大きな禁止理由は少なめです。</p>
                   )}
                 </div>
 
+                <div className="card inner">
+                  <p className="label">分割買いステージ</p>
+                  <h3>{stage.stage}</h3>
+                  <p>{stage.text}</p>
+                  <div className="bar">
+                    <i style={{ width: stage.progress + "%" }} />
+                  </div>
+                  <p>次の購入目安: {stage.nextAmount ? yen(stage.nextAmount) : "追加なし"}</p>
+                </div>
+
                 <div className="actions">
-                  <button onClick={() => addLog(s, "買い検討")}>買い検討</button>
-                  <button onClick={() => addLog(s, "利確検討")}>利確</button>
-                  <button onClick={() => addLog(s, "損切り検討")}>損切り</button>
+                  <button onClick={() => addLog(stock, "買い検討")}>買い検討</button>
+                  <button onClick={() => addLog(stock, "利確検討")}>利確</button>
+                  <button onClick={() => addLog(stock, "損切り検討")}>損切り</button>
                 </div>
               </article>
             )
@@ -516,16 +787,46 @@ export default function Page() {
 
       {tab === "edit" && (
         <section className="list">
-          {stocks.map((s) => {
-            const h = holdings[s.code]
+          {stocks.map((stock) => {
+            const h = holdings[stock.code]
+
             return (
-              <div className="card full" key={s.code}>
-                <h2>{s.name}</h2>
-                <label>株数<input inputMode="numeric" value={h.shares} onChange={(e) => updateHolding(s.code, "shares", e.target.value)} /></label>
-                <label>取得単価<input inputMode="numeric" value={h.buyPrice} onChange={(e) => updateHolding(s.code, "buyPrice", e.target.value)} /></label>
-                <label>購入額<input inputMode="numeric" value={h.amount} onChange={(e) => updateHolding(s.code, "amount", e.target.value)} /></label>
-                <label>感情
-                  <select value={h.emotion} onChange={(e) => updateHolding(s.code, "emotion", e.target.value)}>
+              <div className="card full" key={stock.code}>
+                <h2>{stock.name}</h2>
+
+                <label>
+                  株数
+                  <input
+                    inputMode="numeric"
+                    value={h.shares}
+                    onChange={(e) => updateHolding(stock.code, "shares", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  取得単価
+                  <input
+                    inputMode="numeric"
+                    value={h.buyPrice}
+                    onChange={(e) => updateHolding(stock.code, "buyPrice", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  購入額
+                  <input
+                    inputMode="numeric"
+                    value={h.amount}
+                    onChange={(e) => updateHolding(stock.code, "amount", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  感情
+                  <select
+                    value={h.emotion}
+                    onChange={(e) => updateHolding(stock.code, "emotion", e.target.value)}
+                  >
                     <option>冷静</option>
                     <option>焦り</option>
                     <option>恐怖</option>
@@ -533,7 +834,16 @@ export default function Page() {
                     <option>ルール通り</option>
                   </select>
                 </label>
-                <label>メモ<textarea value={h.memo} onChange={(e) => updateHolding(s.code, "memo", e.target.value)} /></label>
+
+                <label>
+                  メモ
+                  <textarea
+                    value={h.memo}
+                    maxLength={120}
+                    onChange={(e) => updateHolding(stock.code, "memo", e.target.value)}
+                    placeholder="買った理由、怖い理由、売る条件など"
+                  />
+                </label>
               </div>
             )
           })}
@@ -542,15 +852,26 @@ export default function Page() {
 
       {tab === "log" && (
         <section className="list">
-          {logs.length === 0 ? <div className="card">記録なし</div> : logs.map((l) => (
-            <div className="card" key={l.id}>
-              <p className="label">{l.date}</p>
-              <h3>{l.name}</h3>
-              <p>{l.action} / {yen(l.price)}</p>
-              <p>感情: {l.emotion}</p>
-              {l.memo ? <p>メモ: {l.memo}</p> : null}
-            </div>
-          ))}
+          <div className="card full">
+            <h2>判断ログ</h2>
+            <p>買い・利確・損切りを考えた理由を残します。</p>
+            <button className="dangerBtn" onClick={clearLogs}>ログを削除</button>
+          </div>
+
+          {logs.length === 0 ? (
+            <div className="card">記録なし</div>
+          ) : (
+            logs.map((log) => (
+              <div className="card" key={log.id}>
+                <p className="label">{log.date}</p>
+                <h3>{log.name}</h3>
+                <p>{log.action} / {yen(log.price)}</p>
+                <p>感情: {log.emotion}</p>
+                <p>損益: {yen(log.profit)}</p>
+                {log.memo ? <p>メモ: {log.memo}</p> : null}
+              </div>
+            ))
+          )}
         </section>
       )}
 
@@ -558,44 +879,379 @@ export default function Page() {
         <section className="list">
           <div className="card">
             <h2>SIGNAL OSとは</h2>
-            <p>投資で勝つためだけでなく、投資で壊れないためのOSです。</p>
+            <p>
+              投資で勝つためだけではなく、投資で壊れないためのOSです。
+              買う理由よりも、買わない理由を先に確認します。
+            </p>
           </div>
+
           <div className="card">
             <h2>ルール</h2>
-            <p>一括買い禁止。現金20万円は残す。赤は買いではなく防御。待機も正しい判断。</p>
+            <p>一括買い禁止。</p>
+            <p>現金20万円は残す。</p>
+            <p>赤は買いではなく防御。</p>
+            <p>待機も正しい判断。</p>
+            <p>焦りや欲が強い日は買わない。</p>
           </div>
         </section>
       )}
 
       <style jsx>{`
-        *{box-sizing:border-box}
-        .app{min-height:100vh;padding:16px 14px 90px;color:white;background:radial-gradient(circle at top,rgba(0,180,255,.25),transparent 32%),linear-gradient(180deg,#020713,#07111f 55%,#020713);font-family:Arial,sans-serif}
-        .hero{display:flex;justify-content:space-between;gap:12px;padding:18px;border:1px solid rgba(0,220,255,.35);border-radius:22px;background:rgba(5,16,32,.86)}
-        .sub,.label{margin:0 0 8px;color:#8aa6b5;font-size:12px}
-        h1{margin:0;font-size:28px}h2,h3{margin:0}.hero p{color:#b7cad8;font-size:13px}
-        .hero button,.nav button,.actions button{border:1px solid rgba(0,220,255,.35);border-radius:999px;padding:11px;color:white;background:rgba(255,255,255,.06);font-weight:bold}
-        .nav{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:12px 0;background:rgba(2,7,19,.92)}
-        .nav button{font-size:11px;color:#a9bfca}.nav .on{background:#60ddff;color:#00131c}
-        .grid,.list{display:grid;gap:12px}.card,.stock,.judge{padding:16px;border:1px solid rgba(0,220,255,.25);border-radius:20px;background:rgba(7,18,34,.86)}
-        .judge{border-width:2px}.judge h2{font-size:34px}.judge p,.card p{color:#d7e9f0;font-size:13px;line-height:1.6}
-        .full{grid-column:1/-1}.signals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.signals div{padding:12px;border-radius:14px;background:rgba(255,255,255,.06)}.signals b{font-size:28px}.signals span{display:block;font-size:12px;color:#8fdfff}
-        .update{text-align:center;color:#7894a5;font-size:12px}.top{display:grid;grid-template-columns:1fr 120px;gap:12px}.code{margin:0;color:#64dfff;font-size:12px;font-weight:bold}.theme{color:#a9bfca;font-size:12px}
-        .badge{padding:12px;border-radius:16px;text-align:center;font-size:18px;font-weight:900}
-        .score{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:12px;border-radius:16px;background:rgba(255,255,255,.05)}.score span{color:#8aa6b5;font-size:12px}.score b{font-size:28px}
-        .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}.mini{padding:12px;border-radius:14px;background:rgba(255,255,255,.06)}.mini span{display:block;margin-bottom:6px;color:#87a2b2;font-size:11px}.mini b{font-size:16px;word-break:break-all}
-        .message{margin-top:14px;padding:14px;border-radius:16px;background:rgba(0,0,0,.2)}.message p,.message li{color:#d5e6ee;font-size:13px;line-height:1.7}
-        .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}.actions button{font-size:12px;border-radius:14px}
-        label{display:grid;gap:6px;margin-top:12px;color:#aac1cc;font-size:13px;font-weight:700}input,textarea,select{width:100%;border:1px solid rgba(0,220,255,.25);border-radius:14px;padding:12px;color:white;background:rgba(0,0,0,.25);font-size:16px}textarea{min-height:70px}
-        @media(min-width:620px){.app{max-width:560px;margin:0 auto}.grid{grid-template-columns:repeat(2,1fr)}}
+        * {
+          box-sizing: border-box;
+        }
+
+        .app {
+          min-height: 100vh;
+          padding: 16px 14px 90px;
+          color: white;
+          background:
+            radial-gradient(circle at top, rgba(0, 180, 255, .25), transparent 32%),
+            linear-gradient(180deg, #020713, #07111f 55%, #020713);
+          font-family: Arial, sans-serif;
+        }
+
+        .hero {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 18px;
+          border: 1px solid rgba(0, 220, 255, .35);
+          border-radius: 22px;
+          background: rgba(5, 16, 32, .86);
+        }
+
+        .sub,
+        .label {
+          margin: 0 0 8px;
+          color: #8aa6b5;
+          font-size: 12px;
+        }
+
+        h1 {
+          margin: 0;
+          font-size: 28px;
+        }
+
+        h2,
+        h3 {
+          margin: 0;
+        }
+
+        .hero p {
+          color: #b7cad8;
+          font-size: 13px;
+        }
+
+        .hero button,
+        .nav button,
+        .actions button,
+        .dangerBtn {
+          border: 1px solid rgba(0, 220, 255, .35);
+          border-radius: 999px;
+          padding: 11px;
+          color: white;
+          background: rgba(255, 255, 255, .06);
+          font-weight: bold;
+        }
+
+        .nav {
+          position: sticky;
+          top: 0;
+          z-index: 5;
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 6px;
+          padding: 12px 0;
+          background: rgba(2, 7, 19, .92);
+        }
+
+        .nav button {
+          font-size: 11px;
+          color: #a9bfca;
+        }
+
+        .nav .on {
+          background: #60ddff;
+          color: #00131c;
+        }
+
+        .grid,
+        .list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .card,
+        .stock,
+        .judge {
+          padding: 16px;
+          border: 1px solid rgba(0, 220, 255, .25);
+          border-radius: 20px;
+          background: rgba(7, 18, 34, .86);
+        }
+
+        .inner {
+          margin-top: 14px;
+          background: rgba(255, 255, 255, .04);
+        }
+
+        .judge {
+          border-width: 2px;
+        }
+
+        .judge h2 {
+          font-size: 34px;
+        }
+
+        .judge p,
+        .card p {
+          color: #d7e9f0;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .full {
+          grid-column: 1 / -1;
+        }
+
+        .signals {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 8px;
+        }
+
+        .signals div {
+          padding: 12px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, .06);
+        }
+
+        .signals b {
+          font-size: 28px;
+        }
+
+        .signals span {
+          display: block;
+          font-size: 12px;
+          color: #8fdfff;
+        }
+
+        .ruleBox {
+          display: grid;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .rule {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 12px;
+          border-radius: 14px;
+          background: rgba(255,255,255,.05);
+          color: #d7e9f0;
+          font-size: 13px;
+        }
+
+        .ok {
+          color: #00f5d4;
+          font-weight: bold;
+        }
+
+        .ng {
+          color: #ff4d6d;
+          font-weight: bold;
+        }
+
+        .update {
+          text-align: center;
+          color: #7894a5;
+          font-size: 12px;
+        }
+
+        .top {
+          display: grid;
+          grid-template-columns: 1fr 120px;
+          gap: 12px;
+        }
+
+        .code {
+          margin: 0;
+          color: #64dfff;
+          font-size: 12px;
+          font-weight: bold;
+        }
+
+        .theme {
+          color: #a9bfca;
+          font-size: 12px;
+        }
+
+        .badge {
+          padding: 12px;
+          border-radius: 16px;
+          text-align: center;
+          font-size: 18px;
+          font-weight: 900;
+        }
+
+        .score {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 14px;
+          padding: 12px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, .05);
+        }
+
+        .score span {
+          color: #8aa6b5;
+          font-size: 12px;
+        }
+
+        .score b {
+          font-size: 28px;
+        }
+
+        .bar {
+          height: 8px;
+          margin-top: 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,.1);
+          overflow: hidden;
+        }
+
+        .bar i {
+          display: block;
+          height: 100%;
+          border-radius: 999px;
+          background: #00f5d4;
+        }
+
+        .metrics {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+          margin-top: 14px;
+        }
+
+        .mini {
+          padding: 12px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, .06);
+        }
+
+        .mini span {
+          display: block;
+          margin-bottom: 6px;
+          color: #87a2b2;
+          font-size: 11px;
+        }
+
+        .mini b {
+          font-size: 16px;
+          word-break: break-all;
+        }
+
+        .message {
+          margin-top: 14px;
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(0, 0, 0, .2);
+        }
+
+        .message p,
+        .message li {
+          color: #d5e6ee;
+          font-size: 13px;
+          line-height: 1.7;
+        }
+
+        .actions {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+          margin-top: 14px;
+        }
+
+        .actions button {
+          font-size: 12px;
+          border-radius: 14px;
+        }
+
+        .dangerBtn {
+          border-color: rgba(255,77,109,.5);
+          color: #ffdce0;
+          background: rgba(120,0,20,.35);
+          margin-top: 10px;
+        }
+
+        label {
+          display: grid;
+          gap: 6px;
+          margin-top: 12px;
+          color: #aac1cc;
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        input,
+        textarea,
+        select {
+          width: 100%;
+          border: 1px solid rgba(0, 220, 255, .25);
+          border-radius: 14px;
+          padding: 12px;
+          color: white;
+          background: rgba(0, 0, 0, .25);
+          font-size: 16px;
+        }
+
+        textarea {
+          min-height: 70px;
+        }
+
+        @media (min-width: 620px) {
+          .app {
+            max-width: 560px;
+            margin: 0 auto;
+          }
+
+          .grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
       `}</style>
     </main>
   )
 }
 
 function Card({ title, value, sub, color }) {
-  return <div className="card"><p className="label">{title}</p><h3 style={{color}}>{value}</h3>{sub ? <small style={{color}}>{sub}</small> : null}</div>
+  return (
+    <div className="card">
+      <p className="label">{title}</p>
+      <h3 style={{ color }}>{value}</h3>
+      {sub ? <small style={{ color }}>{sub}</small> : null}
+    </div>
+  )
 }
 
 function Mini({ title, value, color }) {
-  return <div className="mini"><span>{title}</span><b style={{color}}>{value}</b></div>
+  return (
+    <div className="mini">
+      <span>{title}</span>
+      <b style={{ color }}>{value}</b>
+    </div>
+  )
+}
+
+function Rule({ ok, text }) {
+  return (
+    <div className="rule">
+      <span>{text}</span>
+      <b className={ok ? "ok" : "ng"}>{ok ? "OK" : "注意"}</b>
+    </div>
+  )
 }
